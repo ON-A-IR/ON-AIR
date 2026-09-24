@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from urllib.request import ProxyHandler, Request, build_opener
 
 from dataclasses import dataclass
@@ -115,14 +116,7 @@ def analyze_topic(topic: str) -> dict[str, str]:
         }
 
     if "데이트" in topic or "주말" in topic:
-        return {
-            "scene": "주말 약속을 앞두고 어디 갈지 고민하는 오후",
-            "simple": "동선과 분위기, 선택지를 한 번에 정리해주는 추천",
-            "example_a": "걷기 좋은 거리, 대화하기 좋은 카페, 부담 없는 식사 코스",
-            "example_b": "날씨나 시간대에 따라 바꿀 수 있는 예비 선택지",
-            "tension": "추천이 너무 많으면 오히려 결정하기 어려워진다는 점",
-            "takeaway": "좋은 코스는 화려함보다 둘이 편하게 움직일 수 있는 흐름에서 나온다는 점",
-        }
+        return _infer_topic_info(topic)
 
     if "도전" in topic or "프로젝트" in topic:
         return {
@@ -134,13 +128,140 @@ def analyze_topic(topic: str) -> dict[str, str]:
             "takeaway": "기술보다 사용자가 어떤 경험을 하게 되는지가 먼저 보여야 한다는 점",
         }
 
+    return _infer_topic_info(topic)
+
+
+def _topic_words(topic: str) -> list[str]:
+    words = re.findall(r"[A-Za-z0-9가-힣]+", topic)
+    stop_words = {
+        "알려줘", "알아보기", "정리", "추천", "방법", "대해", "관련", "주제", "콘텐츠",
+        "그리고", "어떤", "진짜", "좋은", "잘", "해줘", "하는법", "하는", "것",
+    }
+    return [word for word in words if len(word) > 1 and word.casefold() not in stop_words][:5]
+
+
+def _topic_anchor(topic: str) -> str:
+    words = _topic_words(topic)
+    return " ".join(words[:3]) or topic.strip() or "이 주제"
+
+
+def _topic_subject_label(topic: str) -> str:
+    anchor = _topic_anchor(topic)
+    last = anchor[-1]
+    has_batchim = "가" <= last <= "힣" and (ord(last) - ord("가")) % 28
+    return f"'{anchor}'{'은' if has_batchim else '는'}"
+
+
+def _topic_object_label(topic: str) -> str:
+    anchor = _topic_anchor(topic)
+    return f"'{anchor}'{_topic_particle(anchor)}"
+
+
+def _infer_topic_info(topic: str) -> dict[str, str]:
+    """Build a useful offline angle when the topic is not in the hand-written packs."""
+
+    value = topic.casefold()
+    anchor = _topic_anchor(topic)
+    subject_label = _topic_subject_label(topic)
+    object_label = _topic_object_label(topic)
+
+    if any(word in value for word in ("더위", "폭염", "무더위", "열대야", "열사병", "온열", "여름", "heat")):
+        return {
+            "scene": "기온이 높고 습한 날 외출이나 일을 앞두고 몸의 열을 어떻게 낮출지 고민하는 오후",
+            "simple": "더위를 이기는 일은 참는 것이 아니라 몸에 열이 덜 쌓이게 하고 수분을 조금씩 보충하면서 시원한 환경으로 옮기는 것",
+            "example_a": "물을 한 번에 많이 마시기보다 자주 마시기, 땀을 많이 흘렸다면 전해질 음료를 곁들이기, 통풍이 되는 밝은 옷 입기",
+            "example_b": "가장 더운 시간대의 야외 활동 줄이기, 그늘과 냉방 공간에서 쉬기, 목·겨드랑이처럼 열이 빠져나가기 쉬운 부위 식히기",
+            "tension": "갈증이 올 때까지 버티거나 카페인과 술로 수분을 대신하면 탈수와 체온 상승이 더 심해질 수 있다는 점",
+            "takeaway": "더운 날에는 물과 전해질을 보충하고, 활동 시간을 바꾸고, 시원한 곳에서 쉬며 어지럼·메스꺼움 같은 이상 신호가 있으면 즉시 활동을 멈춰야 한다는 점",
+        }
+
+    if any(word in value for word in ("일본", "도쿄", "오사카", "교토", "제주", "부산", "여행", "관광", "trip", "travel")):
+        return {
+            "scene": f"{object_label} 검색하다가 하루에 어디까지 움직일 수 있을지 계산해보는 순간",
+            "simple": f"{subject_label} 볼거리를 많이 넣는 것보다 이동 시간과 동행인의 체력을 맞추는 계획",
+            "example_a": "첫 장소까지의 이동, 꼭 보고 싶은 한 곳, 식사와 휴식 사이의 간격",
+            "example_b": "날씨가 바뀌었을 때 바꿀 실내 코스와 예약 없이 선택할 수 있는 대안",
+            "tension": "유명한 장소를 욕심내서 넣을수록 이동과 대기가 길어져 실제 만족도가 떨어질 수 있다는 점",
+            "takeaway": "좋은 일정은 빈칸 없이 채운 표가 아니라 늦어져도 다음 선택을 할 수 있는 흐름이라는 점",
+        }
+
+    if any(word in value for word in ("데이트", "주말", "나들이", "핫플", "카페", "맛집", "축제", "전시", "서울", "성수", "홍대")):
+        return {
+            "scene": f"{object_label} 정하면서 상대가 좋아할 분위기와 실제 이동 거리를 함께 따져보는 주말 오후",
+            "simple": f"{subject_label} 장소를 많이 모으는 일이 아니라 두 사람이 편하게 대화할 흐름을 만드는 선택",
+            "example_a": "첫 만남에 어색하지 않은 산책 구간, 대화하기 좋은 카페, 식사 시간을 나누는 순서",
+            "example_b": "비가 오거나 웨이팅이 길 때 바로 바꿀 수 있는 가까운 실내 선택지",
+            "tension": "사진이 예쁜 장소만 이어 붙이면 이동과 대기 때문에 정작 함께 있는 시간이 줄 수 있다는 점",
+            "takeaway": "좋은 코스는 유명한 장소의 숫자보다 두 사람의 속도와 대화가 끊기지 않는지가 기준이라는 점",
+        }
+
+    if any(word in value for word in ("요리", "레시피", "쿠킹", "베이킹", "디저트", "커피", "원두", "식당", "메뉴", "cooking")):
+        return {
+            "scene": f"{object_label} 시작하기 전에 재료와 도구를 식탁 위에 펼쳐놓고 순서를 확인하는 장면",
+            "simple": f"{subject_label} 재료를 많이 준비하는 것보다 익는 속도와 맛의 균형을 맞추는 과정",
+            "example_a": "먼저 손질할 재료와 마지막에 넣어야 향이 살아나는 재료를 나누는 방법",
+            "example_b": "불 세기, 물기, 간처럼 결과를 크게 바꾸지만 중간에 바로 조정할 수 있는 변수",
+            "tension": "레시피의 시간을 그대로 믿고 재료의 크기나 화력 차이를 무시하면 결과가 달라질 수 있다는 점",
+            "takeaway": "좋은 조리는 정답을 복사하는 일이 아니라 중간 상태를 보고 다음 순서를 조절하는 일이라는 점",
+        }
+
+    if any(word in value for word in ("운동", "러닝", "달리기", "헬스", "다이어트", "수면", "건강", "요가", "마라톤", "fitness")):
+        return {
+            "scene": f"{object_label} 시작하려고 운동화를 신었지만 오늘 컨디션과 가능한 시간을 먼저 확인하는 아침",
+            "simple": f"{subject_label} 한 번 세게 하는 것보다 내 몸이 회복할 수 있는 빈도와 강도를 찾는 습관",
+            "example_a": "목표를 기록하는 방법, 처음 일주일에 지킬 수 있는 짧은 루틴, 쉬는 날의 기준",
+            "example_b": "통증이나 수면 부족처럼 계획을 줄여야 한다는 신호와 조금씩 늘려도 되는 신호",
+            "tension": "처음부터 높은 목표를 잡으면 며칠의 의욕은 올라가도 회복 부족으로 오래 이어지기 어렵다는 점",
+            "takeaway": "좋은 계획은 가장 힘든 하루를 기준으로 세우는 것이 아니라 반복할 수 있는 평균을 기준으로 잡는다는 점",
+        }
+
+    if any(word in value for word in ("공부", "시험", "영어", "자격증", "취업", "면접", "이직", "커리어", "업무", "프로젝트", "공부법")) and not any(word in value for word in ("주식", "투자", "재테크", "예산", "저축", "적금", "부동산", "금융")):
+        return {
+            "scene": f"{object_label} 시작하려고 자료를 잔뜩 펼쳤지만 오늘 끝낼 수 있는 한 가지를 먼저 고르는 저녁",
+            "simple": f"{subject_label} 정보를 더 모으는 일보다 목표를 작은 결과물로 바꾸고 확인하는 과정",
+            "example_a": "이번 주에 끝낼 범위, 직접 풀어볼 문제, 다른 사람에게 설명해볼 결과물",
+            "example_b": "시간이 부족할 때 우선순위를 바꾸는 기준과 틀린 부분을 다시 보는 복습 방법",
+            "tension": "공부 시간만 늘리고 내가 무엇을 할 수 있게 됐는지 확인하지 않으면 진도가 착시가 될 수 있다는 점",
+            "takeaway": "좋은 학습은 오래 앉아 있는 기록보다 다음에 혼자 해낼 수 있는 일이 늘어나는지로 확인한다는 점",
+        }
+
+    if any(word in value for word in ("주식", "투자", "재테크", "예산", "저축", "적금", "부동산", "돈", "금융", "stock")):
+        return {
+            "scene": f"{object_label} 검색하다가 수익률보다 내가 감당할 수 있는 기간과 손실을 먼저 적어보는 순간",
+            "simple": f"{subject_label} 한 번의 선택으로 돈을 불리는 비법보다 목적과 위험을 맞추는 의사결정",
+            "example_a": "언제 쓸 돈인지, 얼마까지 흔들려도 되는지, 확인할 숫자가 무엇인지 정하는 과정",
+            "example_b": "수수료와 세금, 현금 흐름, 최악의 경우에도 유지할 수 있는지 점검하는 방법",
+            "tension": "높아 보이는 수익만 보고 기간과 손실 가능성을 빼면 실제 선택은 전혀 달라질 수 있다는 점",
+            "takeaway": "좋은 금융 판단은 정답 종목을 찾는 일보다 내 목적과 감당 가능한 위험을 먼저 정하는 일이라는 점",
+        }
+
+    if any(word in value for word in ("앱", "웹", "개발", "코딩", "파이썬", "프로그램", "인공지능", "ai", "기술", "서비스")):
+        return {
+            "scene": f"{object_label} 직접 써보거나 만들어보면서 편리한 순간과 막히는 지점을 메모하는 장면",
+            "simple": f"{subject_label} 기능 목록보다 사용자가 어떤 일을 더 쉽게 끝내게 하는지로 판단하는 도구",
+            "example_a": "처음 화면에서 목적을 찾는 과정, 입력과 결과가 연결되는 흐름, 실패했을 때 다시 시도하는 방법",
+            "example_b": "속도와 정확도, 개인정보, 유지보수처럼 겉으로 보이지 않는 사용 조건",
+            "tension": "기능을 많이 넣을수록 좋아 보이지만 처음 쓰는 사람이 무엇을 해야 할지 잃을 수 있다는 점",
+            "takeaway": "좋은 기술은 어려운 내부 원리를 자랑하기보다 사용자의 다음 행동을 분명하게 만들어준다는 점",
+        }
+
+    if any(word in value for word in ("영화", "드라마", "책", "소설", "음악", "재즈", "콘서트", "전시", "문화", "게임")):
+        return {
+            "scene": f"{object_label} 보고 난 뒤 좋았다는 감상에서 멈추지 않고 어떤 장면이 오래 남았는지 떠올리는 밤",
+            "simple": f"{subject_label} 줄거리나 정보만 전달하는 대상이 아니라 사람마다 다른 감정과 해석을 만드는 경험",
+            "example_a": "처음 관심을 끈 장면이나 소리, 작품의 속도와 분위기, 기억에 남은 인물이나 표현",
+            "example_b": "다른 사람의 해석을 들었을 때 새로 보이는 부분과 내 취향에 맞는 다음 선택",
+            "tension": "유명하다는 이유만으로 감상을 정리하면 내가 실제로 느낀 변화가 사라질 수 있다는 점",
+            "takeaway": "좋은 감상은 정답을 맞히는 일이 아니라 무엇이 나를 움직였는지 구체적으로 말해보는 일이라는 점",
+        }
+
     return {
-        "scene": "관심 있는 주제를 라디오처럼 편하게 풀어보는 시간",
-        "simple": "복잡한 내용을 듣기 쉬운 순서로 바꾸는 이야기",
-        "example_a": "처음 듣는 사람도 따라올 수 있는 쉬운 비유와 사례",
-        "example_b": "중간중간 분위기를 바꾸는 음악과 짧은 코멘트",
-        "tension": "주제가 넓어질수록 초점이 흐려질 수 있다는 점",
-        "takeaway": "좋은 방송은 많은 내용을 넣는 것보다 듣는 길을 만들어주는 것이라는 점",
+        "scene": f"'{anchor}'이라는 말을 보고 실제 생활에서 언제 필요해지는지 떠올려보는 순간",
+        "simple": f"{object_label} 둘러싼 선택과 경험을 목적에 맞게 나눠보는 주제",
+        "example_a": f"{object_label} 처음 접할 때 확인할 대상, 순서, 결과를 작은 사례로 나눠보는 방법",
+        "example_b": f"{object_label} 직접 시도했을 때 기대와 달라지는 지점, 그리고 다음에 바꿀 선택",
+        "tension": f"'{anchor}'에 대한 인상만으로 결론을 내리면 실제 조건과 사람마다 다른 경험을 놓칠 수 있다는 점",
+        "takeaway": f"{object_label} 한 문장으로 단정하기보다 내 목적과 조건에 맞는 질문으로 좁혀야 한다는 점",
     }
 
 
@@ -490,13 +611,55 @@ def _known_sections(topic: str) -> list[tuple[str, str, list[tuple[str, str]]]] 
 
 
 def _generic_sections(topic: str) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    info = analyze_topic(topic)
     subject = f"'{topic}'"
     particle = _topic_particle(topic)
     return [
-        ("opening", "주제 열기", [("A", f"오늘은 {subject}{particle} 사전식 정의보다, 실제로 언제 만나고 왜 궁금해지는지부터 이야기해볼게요."), ("B", f"좋아요. 처음 듣는 사람이라면 {subject}{particle} 한 문장으로 설명하기보다 익숙한 장면에 연결하는 편이 이해하기 쉽겠죠.")]),
-        ("context", "맥락 잡기", [("B", f"먼저 {subject}{particle} 알아볼 때 가장 먼저 확인할 건 목적과 기준이에요. 무엇을 하려는지에 따라 중요한 정보가 달라지거든요."), ("A", f"그래서 {subject}{particle} 무조건 좋다거나 어렵다고 단정하기보다, 내 상황에서 어떤 선택지가 있는지 나눠보는 게 좋겠습니다.")]),
-        ("practical", "직접 살펴보기", [("A", f"실제로 {subject}{particle} 접한다면 작은 사례 하나부터 비교해보세요. 기대한 점과 달랐던 점을 적어두면 다음 판단이 훨씬 쉬워집니다."), ("B", "그리고 출처가 필요한 정보와 사람마다 달라지는 경험을 구분하면 과장된 결론을 피할 수 있어요.")]),
-        ("closing", "마무리", [("B", f"결국 {subject}{particle} 잘 이해하는 방법은 한 번에 결론을 내리는 게 아니라, 내 목적에 맞는 질문을 하나씩 좁혀가는 데 있습니다."), ("A", "오늘 이야기에서 바로 적용할 수 있는 기준 하나를 골라 작게 시험해보면 좋겠습니다.")]),
+        (
+            "opening",
+            "실제 장면에서 시작하기",
+            [
+                ("A", f"오늘은 {subject}{particle} 설명부터 외우기보다, {info['scene']} 장면에서 시작해볼게요."),
+                ("B", f"그 장면을 떠올리면 {subject}{particle} 막연한 단어가 아니라 내가 직접 판단해야 하는 상황으로 보이네요."),
+                ("A", f"그래서 첫 질문은 간단합니다. {info['simple']}라는 관점에서 무엇을 먼저 봐야 할까요?"),
+            ],
+        ),
+        (
+            "context",
+            "핵심 기준 좁히기",
+            [
+                ("B", f"처음에는 {info['example_a']}처럼 결과를 바꾸는 요소를 두세 가지로 나누는 게 좋겠습니다."),
+                ("A", f"맞아요. {subject}{particle} 한꺼번에 잘하려고 하면 정보만 늘어나니까, 오늘은 목적과 순서를 먼저 잡아보죠."),
+                ("B", f"그 기준을 세우면 {info['example_b']} 같은 변수도 생겼을 때 무엇을 바꿀지 선택하기 쉬워집니다."),
+            ],
+        ),
+        (
+            "choice",
+            "선택지가 갈리는 순간",
+            [
+                ("A", f"여기서 많은 사람이 놓치는 건 {info['tension']}이라는 점이에요."),
+                ("B", f"그러면 {subject}에서 꼭 지킬 조건과 상황에 따라 바꿀 조건을 나눠야겠네요. 예를 들어 {info['example_b']}부터 확인할 수 있겠습니다."),
+                ("A", "결국 같은 키워드라도 사람마다 목적과 여건이 달라서 한 가지 답을 그대로 복사하기는 어렵겠어요."),
+            ],
+        ),
+        (
+            "practical",
+            "오늘 바로 해볼 일",
+            [
+                ("B", f"청취자가 오늘 바로 해볼 수 있는 건 {info['example_a']} 중 하나를 골라 작은 사례로 확인해보는 겁니다."),
+                ("A", f"그 결과가 예상과 다르면 실패라고 보기보다 {subject}에서 다음 선택을 바꿀 근거로 삼으면 되고요."),
+                ("B", f"그렇게 한 번 기록해두면 {info['takeaway']}라는 결론이 실제 경험과 연결됩니다."),
+            ],
+        ),
+        (
+            "closing",
+            "정리와 다음 질문",
+            [
+                ("A", f"오늘 {subject} 이야기를 정리하면, {info['takeaway']}입니다."),
+                ("B", f"다음에 {subject}{particle} 다시 만났을 때는 오늘의 기준 중 하나만 적용해도 전보다 훨씬 구체적으로 판단할 수 있겠어요."),
+                ("A", "정답을 서둘러 정하기보다 내 상황에 맞는 질문을 남기는 것, 그게 오늘 대화의 핵심입니다."),
+            ],
+        ),
     ]
 
 
@@ -518,8 +681,10 @@ def _ollama_sections(
         prompt = f"""한국어 라디오 대본을 작성하세요.
 주제: {topic}
 형식: {FORMAT_LABELS[broadcast_format]}
+목표 분량: {duration_minutes}분. 짧은 개요가 아니라 실제로 읽을 수 있는 충분한 대사를 작성하세요.
 반드시 주제에 구체적으로 답하고, 주제와 무관한 기술/방송 제작 문장을 넣지 마세요.
-최소 4개 섹션, 각 섹션에 진행자 A/B의 자연스러운 대화 2~4줄을 작성하세요.
+섹션은 장면 소개, 핵심 맥락, 선택지나 사례, 변수와 반론, 바로 적용할 방법처럼 서로 다른 역할을 가져야 합니다.
+각 섹션에 진행자 A/B의 자연스러운 대화 3~6줄을 작성하고, 같은 문장 구조를 반복하지 마세요.
 현재 사실이나 가격을 추측하지 말고, 근거가 필요한 내용은 확인 기준으로 말하세요.
 JSON만 출력하세요. 형식: {{"sections":[{{"title":"섹션 제목","dialogue":[{{"speaker":"A","text":"대사"}},{{"speaker":"B","text":"대사"}}]}}]}}"""
         payload = json.dumps({
@@ -558,31 +723,38 @@ def _duration_followup(
     segment_type: str,
     round_index: int,
 ) -> list[tuple[str, str]]:
+    info = analyze_topic(topic)
     subject = f"'{topic}'"
     focus_by_type = {
-        "opening": "처음 방향을 정하는 기준",
-        "city": "선택지마다 달라지는 분위기와 우선순위",
-        "transport": "시간과 이동 부담을 줄이는 방법",
-        "food": "예산과 취향을 함께 맞추는 방법",
-        "closing": "실제로 적용하기 전에 점검할 항목",
+        "opening": info["example_a"],
+        "city": info["example_a"],
+        "transport": info["example_b"],
+        "food": info["example_b"],
+        "closing": info["takeaway"],
     }
-    focus = focus_by_type.get(segment_type, "실제 상황에서 선택하는 기준")
-    if round_index % 3 == 0:
+    focus = focus_by_type.get(segment_type, info["example_a"])
+    if round_index % 4 == 0:
         return [
-            ("A", f"그럼 {subject}를 실제로 준비하거나 선택할 때는 {focus}부터 짚어보면 좋겠네요. 처음부터 모든 경우의 수를 정하려고 하면 오히려 결정이 늦어질 수 있잖아요."),
-            ("B", f"맞아요. 우선 {subject}에서 꼭 지키고 싶은 조건을 한두 가지로 줄인 다음, 나머지는 현장에서 바꿀 수 있게 여지를 남겨두는 편이 현실적입니다."),
-            ("A", f"결국 {subject}는 정답을 외우는 것보다 내 상황에 맞는 기준을 세우는 게 중요하겠어요. 그 기준만 분명하면 예상과 다른 상황에서도 다음 선택을 이어갈 수 있으니까요."),
+            ("A", f"조금 더 구체적으로 보면 {focus}가 {subject}의 결과를 꽤 크게 바꿀 수 있겠네요."),
+            ("B", f"맞아요. 그래서 {subject}에서 처음부터 전부 결정하기보다, 꼭 지킬 조건과 바꿔도 되는 조건을 나눠보는 게 좋습니다."),
+            ("A", f"그렇게 기준을 줄이면 {info['example_b']} 같은 변수가 생겨도 다음 선택을 이어갈 수 있겠어요."),
         ]
-    if round_index % 3 == 1:
+    if round_index % 4 == 1:
         return [
-            ("A", f"한 가지 더 생각해 볼 점은 {subject}를 계획할 때 생기는 작은 변수예요. 시간이 부족하거나 예상보다 비용이 커졌을 때 무엇을 먼저 조정할지 정해두면 당황하지 않습니다."),
-            ("B", "저라면 꼭 필요한 부분은 남기고, 순서를 바꾸거나 규모를 줄일 수 있는 부분부터 조정할 것 같아요. 그렇게 하면 계획 전체를 포기하지 않아도 됩니다."),
-            ("A", f"네, {subject}를 오래 즐기려면 처음 계획을 지키는 것보다 상황에 맞게 고쳐 가는 태도가 더 중요하겠네요."),
+            ("A", f"반대로 계획이 예상과 달라지는 순간도 생각해봐야 해요. {info['tension']} 때문입니다."),
+            ("B", f"그럴 때는 핵심 결과를 남기고 {info['example_a']}처럼 조정할 수 있는 부분부터 바꾸면 전체를 포기하지 않아도 됩니다."),
+            ("A", f"결국 {subject}는 처음 계획을 완벽하게 지키는 일보다 상황을 읽고 순서를 바꾸는 일이 더 현실적이겠네요."),
+        ]
+    if round_index % 4 == 2:
+        return [
+            ("A", f"처음 접하는 사람이라면 {subject}에서 겉으로 잘 보이지 않는 조건도 궁금할 텐데요."),
+            ("B", f"{info['tension']}을 빼놓기 쉽습니다. 그래서 선택하기 전에 시간, 비용, 준비 순서를 실제 상황처럼 적어보는 게 좋아요."),
+            ("A", f"그 과정을 거치면 {subject}를 막연한 기대가 아니라 내가 감당할 수 있는 계획으로 바꿀 수 있겠어요."),
         ]
     return [
-        ("A", f"처음 접하는 청취자라면 {subject}에서 흔히 놓치는 부분도 궁금할 텐데요. 겉으로 보이는 장점만 보고 결정하면 어떤 아쉬움이 생길 수 있을까요?"),
-        ("B", "대부분은 시간이나 준비 순서처럼 눈에 잘 안 보이는 비용을 빼먹기 쉬워요. 그래서 선택하기 전에 실제로 필요한 시간과 수고를 함께 적어보는 게 좋습니다."),
-        ("A", f"그 과정을 거치면 {subject}를 막연한 기대가 아니라 내가 감당할 수 있는 계획으로 바꿀 수 있겠어요."),
+        ("A", f"그럼 오늘 이야기에서 바로 시험해볼 작은 행동을 하나만 골라볼까요? {info['example_a']} 중 가장 쉬운 것부터 시작하면 됩니다."),
+        ("B", f"결과를 한 번 기록해두면 {info['takeaway']}라는 말도 훨씬 현실적으로 느껴질 거예요."),
+        ("A", f"맞아요. {subject}를 잘 이해하는 첫 단계는 큰 결론보다 다음에 확인할 질문을 남기는 일이네요."),
     ]
 
 
@@ -602,6 +774,7 @@ def _extend_sections_to_duration(
     base_sections = list(expanded)
     round_index = 0
     max_extra_sections = max(12, target_seconds // 20 + 12)
+    followup_titles = ["구체적인 사례", "조건이 달라질 때", "초보자가 놓치는 점", "바로 적용하기"]
 
     while estimated_seconds < target_seconds and round_index < max_extra_sections:
         source_type, source_title, _ = base_sections[round_index % len(base_sections)]
@@ -609,7 +782,11 @@ def _extend_sections_to_duration(
         insert_at = min(round_index + 1, len(expanded))
         expanded.insert(
             insert_at,
-            (f"{source_type}_followup_{round_index}", f"{source_title} 이어서", followup_turns),
+            (
+                f"{source_type}_followup_{round_index}",
+                f"{source_title} · {followup_titles[round_index % len(followup_titles)]}",
+                followup_turns,
+            ),
         )
         estimated_seconds += _estimate_section_seconds(followup_turns)
         round_index += 1
@@ -696,3 +873,4 @@ def _build_natural_plan(
             sections = _generic_sections(topic)
     sections = _extend_sections_to_duration(topic, duration_minutes, sections)
     return _render_natural_plan(topic, tone, broadcast_format, language, source, duration_minutes, sections, provider)
+    
