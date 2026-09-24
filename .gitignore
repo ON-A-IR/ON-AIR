@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+.venv/
+.venv-win/
+.tts-cache/
+.env
+backend/static/audio/*.mp3
+backend/static/audio/*.wav
+backend/reference_voices/*
+!backend/reference_voices/.gitkeep
+*.local

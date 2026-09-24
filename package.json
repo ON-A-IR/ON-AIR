@@ -1,0 +1,21 @@
+{
+  "name": "on-ai-r",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File scripts/start-dev.ps1",
+    "dev": "vite --host 0.0.0.0",
+    "dev:frontend": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:backend": ".venv-win/Scripts/python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {}
+}
