@@ -500,7 +500,12 @@ def _generic_sections(topic: str) -> list[tuple[str, str, list[tuple[str, str]]]
     ]
 
 
-def _ollama_sections(topic: str, broadcast_format: BroadcastFormat, language: Language) -> list[tuple[str, str, list[tuple[str, str]]]] | None:
+def _ollama_sections(
+    topic: str,
+    broadcast_format: BroadcastFormat,
+    language: Language,
+    duration_minutes: int,
+) -> list[tuple[str, str, list[tuple[str, str]]]] | None:
     if language != "ko" or os.getenv("SCRIPT_PROVIDER", "auto").lower() == "offline":
         return None
 
@@ -543,6 +548,75 @@ JSON만 출력하세요. 형식: {{"sections":[{{"title":"섹션 제목","dialog
         return None
 
 
+def _estimate_section_seconds(turns: list[tuple[str, str]]) -> int:
+    section_text = "\n".join(text for _, text in turns)
+    return max(24, min(150, len(section_text.replace(" ", "")) // 6))
+
+
+def _duration_followup(
+    topic: str,
+    segment_type: str,
+    round_index: int,
+) -> list[tuple[str, str]]:
+    subject = f"'{topic}'"
+    focus_by_type = {
+        "opening": "처음 방향을 정하는 기준",
+        "city": "선택지마다 달라지는 분위기와 우선순위",
+        "transport": "시간과 이동 부담을 줄이는 방법",
+        "food": "예산과 취향을 함께 맞추는 방법",
+        "closing": "실제로 적용하기 전에 점검할 항목",
+    }
+    focus = focus_by_type.get(segment_type, "실제 상황에서 선택하는 기준")
+    if round_index % 3 == 0:
+        return [
+            ("A", f"그럼 {subject}를 실제로 준비하거나 선택할 때는 {focus}부터 짚어보면 좋겠네요. 처음부터 모든 경우의 수를 정하려고 하면 오히려 결정이 늦어질 수 있잖아요."),
+            ("B", f"맞아요. 우선 {subject}에서 꼭 지키고 싶은 조건을 한두 가지로 줄인 다음, 나머지는 현장에서 바꿀 수 있게 여지를 남겨두는 편이 현실적입니다."),
+            ("A", f"결국 {subject}는 정답을 외우는 것보다 내 상황에 맞는 기준을 세우는 게 중요하겠어요. 그 기준만 분명하면 예상과 다른 상황에서도 다음 선택을 이어갈 수 있으니까요."),
+        ]
+    if round_index % 3 == 1:
+        return [
+            ("A", f"한 가지 더 생각해 볼 점은 {subject}를 계획할 때 생기는 작은 변수예요. 시간이 부족하거나 예상보다 비용이 커졌을 때 무엇을 먼저 조정할지 정해두면 당황하지 않습니다."),
+            ("B", "저라면 꼭 필요한 부분은 남기고, 순서를 바꾸거나 규모를 줄일 수 있는 부분부터 조정할 것 같아요. 그렇게 하면 계획 전체를 포기하지 않아도 됩니다."),
+            ("A", f"네, {subject}를 오래 즐기려면 처음 계획을 지키는 것보다 상황에 맞게 고쳐 가는 태도가 더 중요하겠네요."),
+        ]
+    return [
+        ("A", f"처음 접하는 청취자라면 {subject}에서 흔히 놓치는 부분도 궁금할 텐데요. 겉으로 보이는 장점만 보고 결정하면 어떤 아쉬움이 생길 수 있을까요?"),
+        ("B", "대부분은 시간이나 준비 순서처럼 눈에 잘 안 보이는 비용을 빼먹기 쉬워요. 그래서 선택하기 전에 실제로 필요한 시간과 수고를 함께 적어보는 게 좋습니다."),
+        ("A", f"그 과정을 거치면 {subject}를 막연한 기대가 아니라 내가 감당할 수 있는 계획으로 바꿀 수 있겠어요."),
+    ]
+
+
+def _extend_sections_to_duration(
+    topic: str,
+    duration_minutes: int,
+    sections: list[tuple[str, str, list[tuple[str, str]]]],
+) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    """Add topic-aware follow-ups until the script reaches its requested duration."""
+
+    expanded = [(segment_type, title, list(turns)) for segment_type, title, turns in sections]
+    if not expanded:
+        return expanded
+
+    target_seconds = max(60, duration_minutes * 60)
+    estimated_seconds = sum(_estimate_section_seconds(turns) for _, _, turns in expanded)
+    base_sections = list(expanded)
+    round_index = 0
+    max_extra_sections = max(12, target_seconds // 20 + 12)
+
+    while estimated_seconds < target_seconds and round_index < max_extra_sections:
+        source_type, source_title, _ = base_sections[round_index % len(base_sections)]
+        followup_turns = _duration_followup(topic, source_type, round_index)
+        insert_at = min(round_index + 1, len(expanded))
+        expanded.insert(
+            insert_at,
+            (f"{source_type}_followup_{round_index}", f"{source_title} 이어서", followup_turns),
+        )
+        estimated_seconds += _estimate_section_seconds(followup_turns)
+        round_index += 1
+
+    return expanded
+
+
 def _render_natural_plan(
     topic: str,
     tone: Tone,
@@ -566,7 +640,7 @@ def _render_natural_plan(
         rendered_segments.append(ScriptSegmentPlan(segment_type, title, segment_text))
         timestamp = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
         blocks.append(block(f"{timestamp} {title}", *rendered_lines))
-        elapsed += max(24, min(150, len(segment_text.replace(" ", "")) // 6))
+        elapsed += _estimate_section_seconds(turns)
 
     notice = "주제별 오프라인 대본"
     if provider == "ollama":
@@ -608,16 +682,17 @@ def _build_natural_plan(
     duration_minutes: int,
 ) -> ScriptPlan:
     if language == "en":
-        sections = _ollama_sections(topic, broadcast_format, language) or _generic_sections(topic)
+        sections = _ollama_sections(topic, broadcast_format, language, duration_minutes) or _generic_sections(topic)
+        sections = _extend_sections_to_duration(topic, duration_minutes, sections)
         return _render_natural_plan(topic, tone, broadcast_format, language, source, duration_minutes, sections, "offline")
 
     sections = _known_sections(topic)
     provider = "offline"
     if sections is None:
-        sections = _ollama_sections(topic, broadcast_format, language)
+        sections = _ollama_sections(topic, broadcast_format, language, duration_minutes)
         if sections:
             provider = "ollama"
         else:
             sections = _generic_sections(topic)
+    sections = _extend_sections_to_duration(topic, duration_minutes, sections)
     return _render_natural_plan(topic, tone, broadcast_format, language, source, duration_minutes, sections, provider)
-
