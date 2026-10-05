@@ -249,8 +249,8 @@ function ResultPanel({ result }) {
   const [ttsLoading, setTtsLoading] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
   const [ttsProvider, setTtsProvider] = useState("");
+  const [ttsError, setTtsError] = useState("");
   const [viewMode, setViewMode] = useState("segments");
-  const utteranceRef = useRef(null);
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -261,6 +261,7 @@ function ResultPanel({ result }) {
     setTtsLoading(false);
     setAudioUrl(result?.audioUrl || "");
     setTtsProvider("");
+    setTtsError("");
     setViewMode("segments");
 
     return () => {
@@ -271,13 +272,6 @@ function ResultPanel({ result }) {
 
   if (!result) return null;
 
-  function scriptForSpeech(script) {
-    return script
-      .replace(/\[[^\]]+\]/g, ". ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
   function handleSpeechToggle() {
     if (playing) {
       audioRef.current?.pause();
@@ -287,27 +281,6 @@ function ResultPanel({ result }) {
     }
 
     playGeneratedAudio();
-  }
-
-  function playBrowserTts() {
-    if (!("speechSynthesis" in window)) {
-      window.alert("이 브라우저는 테스트용 음성 읽기를 지원하지 않습니다.");
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(scriptForSpeech(result.script));
-    utterance.lang = "ko-KR";
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    utterance.onend = () => setPlaying(false);
-    utterance.onerror = () => setPlaying(false);
-
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-    setPlaying(true);
   }
 
   async function getAudioUrl() {
@@ -321,11 +294,14 @@ function ResultPanel({ result }) {
       body: JSON.stringify({
         script: result.script,
         title: result.title,
+        tone: result.tone,
+        format: result.broadcastFormat,
       }),
     });
 
     if (!response.ok) {
-      throw new Error("외부 TTS 생성에 실패했습니다.");
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Piper 음성 생성에 실패했습니다.");
     }
 
     const data = await response.json();
@@ -336,6 +312,7 @@ function ResultPanel({ result }) {
 
   async function playGeneratedAudio() {
     setTtsLoading(true);
+    setTtsError("");
     window.speechSynthesis?.cancel();
 
     try {
@@ -345,12 +322,13 @@ function ResultPanel({ result }) {
       audio.onended = () => setPlaying(false);
       audio.onerror = () => {
         setPlaying(false);
-        playBrowserTts();
+        setTtsError("Piper WAV 파일을 재생하지 못했습니다.");
       };
       await audio.play();
       setPlaying(true);
-    } catch {
-      playBrowserTts();
+    } catch (error) {
+      setPlaying(false);
+      setTtsError(error.message || "Piper 음성을 재생하지 못했습니다.");
     } finally {
       setTtsLoading(false);
     }
@@ -387,6 +365,7 @@ function ResultPanel({ result }) {
           {ttsLoading ? "TTS 생성 중" : playing ? `재생 중 · ${ttsProvider || "로컬 TTS"}` : audioUrl ? ttsProvider || "로컬 TTS" : "TTS 준비"}
         </span>
       </div>
+      {ttsError && <p className="error-message audio-error">{ttsError}</p>}
 
       <div className="script-toolbar" aria-label="대본 보기 방식">
         <button
@@ -698,10 +677,12 @@ export default function App() {
     });
   }
 
-  function normalizeResult(data, fallbackTopic) {
+  function normalizeResult(data, fallbackTopic, fallbackTone, fallbackFormat) {
     return {
       title: data.title ?? `${fallbackTopic} 방송`,
       topic: data.topic ?? fallbackTopic,
+      tone: data.tone ?? fallbackTone,
+      broadcastFormat: data.broadcastFormat ?? fallbackFormat,
       concept: data.concept ?? "",
       formatLabel: data.formatLabel ?? "심층 분석",
       script: data.script ?? "",
@@ -759,7 +740,7 @@ export default function App() {
       const data = await response.json();
       setActiveStep(generationSteps.length - 1);
       setCompleted(true);
-      setResult(normalizeResult(data, nextTopic));
+      setResult(normalizeResult(data, nextTopic, tone, broadcastFormat));
     } catch (requestError) {
       setError(requestError.message);
       setStepVisible(false);

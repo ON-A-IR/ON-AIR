@@ -64,6 +64,8 @@ class GenerateResponse(BaseModel):
 class TtsRequest(BaseModel):
     script: str = Field(min_length=1)
     title: str = "broadcast"
+    tone: Tone = "casual"
+    broadcast_format: BroadcastFormat = Field(default="deep_dive", alias="format")
 
 
 class TtsResponse(BaseModel):
@@ -182,7 +184,12 @@ def generate_broadcast(payload: GenerateRequest) -> GenerateResponse:
 @app.post("/api/tts", response_model=TtsResponse)
 def generate_tts(payload: TtsRequest) -> TtsResponse:
     try:
-        audio_url = create_speech_file(payload.script, payload.title)
+        audio_url = create_speech_file(
+            payload.script,
+            payload.title,
+            payload.tone,
+            payload.broadcast_format,
+        )
     except TtsError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
