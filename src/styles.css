@@ -1039,3 +1039,26 @@ textarea::placeholder {
     grid-template-columns: 1fr;
   }
 }
+.source-editor { width: 100%; margin: 20px 0; padding: 16px 0; border-top: 1px solid #444; border-bottom: 1px solid #444; box-sizing: border-box; }
+.source-editor h2 { font-size: 18px; }
+.source-editor small { font-size: 13px; margin-left: 12px; }
+.source-entry { display: grid; grid-template-columns: 160px 1fr; gap: 10px; }
+.source-entry textarea { grid-column: 1 / -1; min-height: 90px; }
+.source-entry input, .source-entry select, .source-entry textarea { padding: 10px; color: inherit; background: #242424; border: 1px solid #666; border-radius: 6px; width: 100%; box-sizing: border-box; }
+.source-editor button { padding: 8px 14px; cursor: pointer; }
+.source-editor ul { padding: 0; list-style: none; }
+.source-editor li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; }
+.source-editor li label { display: flex; gap: 10px; min-width: 0; align-items: center; }
+.source-editor li span, .used-sources a { overflow-wrap: anywhere; }
+.used-sources { margin: 16px 0; font-size: 14px; }
+.used-sources h3 { font-size: 14px; }
+@media (max-width: 600px) { .source-editor { margin: 16px 0; padding: 12px 0; } .source-entry { grid-template-columns: 1fr; } }
+.web-search { display: flex; gap: 8px; margin: 16px 0; }
+.web-search input { min-width: 0; flex: 1; padding: 12px; border: 1px solid #666; border-radius: 6px; background: #242424; color: inherit; }
+.web-results { max-height: 420px; overflow-y: auto; margin-bottom: 20px; }
+.web-results-header { display: flex; align-items: center; justify-content: space-between; }
+.web-result { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid #444; }
+.web-result div { min-width: 0; }
+.web-result a { color: #9dceff; overflow-wrap: anywhere; }
+.web-result small { display: block; margin-top: 4px; color: #b7b7b7; overflow-wrap: anywhere; }
+.web-result p { font-size: 13px; line-height: 1.5; margin-bottom: 0; overflow-wrap: anywhere; }

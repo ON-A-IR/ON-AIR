@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.services.script_generator import generate_script_plan
+from backend.services.script_generator import ScriptGenerationError, generate_script_plan
+from backend.services.source_service import collect_available_sources, search_sources
 from backend.services.tts_service import TtsError, create_speech_file, get_tts_provider_label
 from backend.services.voice_clone_service import create_xtts_voice_test, save_reference_voice
 
@@ -15,12 +16,23 @@ BroadcastFormat = Literal["deep_dive", "summary", "critique", "debate"]
 Language = Literal["ko", "en"]
 
 
+class SourceInput(BaseModel):
+    title: str = Field(default="", max_length=200)
+    url: str = Field(default="", max_length=2000)
+    text: str = Field(default="", max_length=12000)
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=200)
+
+
 class GenerateRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=120)
     tone: Tone = "casual"
     broadcast_format: BroadcastFormat = Field(default="deep_dive", alias="format")
     language: Language = "ko"
     source: str = Field(default="", max_length=500)
+    sources: list[SourceInput] = Field(default_factory=list, max_items=10)
     duration_minutes: int = Field(default=5, alias="durationMinutes", ge=1, le=30)
 
 
@@ -59,6 +71,7 @@ class GenerateResponse(BaseModel):
     generationProvider: str = "offline"
     generationNotice: str = ""
     estimatedSeconds: int = 0
+    sources: list[dict[str, str]] = Field(default_factory=list)
 
 
 class TtsRequest(BaseModel):
@@ -87,6 +100,14 @@ class VoiceTestResponse(BaseModel):
 
 
 app = FastAPI(title="On-AI-r API", version="0.5.0")
+
+
+@app.exception_handler(ScriptGenerationError)
+async def script_generation_error(request, exc):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 
 app.add_middleware(
@@ -146,15 +167,33 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/sources/search")
+def search_web_sources(payload: SearchRequest):
+    try:
+        return {"results": search_sources(payload.query.strip())}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="웹 검색을 완료하지 못했습니다. 잠시 후 다시 검색해주세요.") from exc
+
+
 @app.post("/api/generate", response_model=GenerateResponse)
 def generate_broadcast(payload: GenerateRequest) -> GenerateResponse:
+    try:
+        sources, source_warnings = collect_available_sources(payload.sources)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    source_context = "\n\n".join(
+        f"출처 {index + 1}: {item['title']}\nURL: {item['url']}\n본문:\n{item['text']}"
+        for index, item in enumerate(sources)
+    )
+    if payload.source.strip():
+        source_context += f"\n추가 메모: {payload.source}"
     music = recommend_music(payload.topic, payload.tone, payload.broadcast_format)
     script_plan = generate_script_plan(
         topic=payload.topic,
         tone=payload.tone,
         broadcast_format=payload.broadcast_format,
         language=payload.language,
-        source=payload.source,
+        source=source_context,
         duration_minutes=payload.duration_minutes,
         music_titles=[item.title for item in music],
     )
@@ -176,8 +215,9 @@ def generate_broadcast(payload: GenerateRequest) -> GenerateResponse:
             else f"약 {script_plan.estimated_seconds // 60}분 {script_plan.estimated_seconds % 60}초"
         ),
         generationProvider=script_plan.generation_provider,
-        generationNotice=script_plan.generation_notice,
+        generationNotice="\n".join([script_plan.generation_notice, *source_warnings]),
         estimatedSeconds=script_plan.estimated_seconds,
+        sources=[{"title": item["title"], "url": item["url"]} for item in sources],
     )
 
 

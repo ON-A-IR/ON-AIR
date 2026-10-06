@@ -89,6 +89,67 @@ function Header() {
   );
 }
 
+function SourceEditor({ sources, onChange, disabled }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [searched, setSearched] = useState(false);
+  async function search() {
+    if (searching || query.trim().length < 2) return;
+    setSearching(true); setSearchError(""); setSearched(false); setResults([]);
+    try {
+      const response = await fetch("/api/sources/search", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query: query.trim()})});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "검색에 실패했습니다.");
+      setResults(data.results); setSearched(true);
+    } catch (error) { setSearchError(error.message); }
+    finally { setSearching(false); }
+  }
+  function toggleResult(item) {
+    const existing = sources.find((s) => s.url === item.url);
+    if (existing) onChange(sources.map((s) => s.id === existing.id ? {...s, selected: !s.selected} : s));
+    else if (sources.length < 10) onChange([...sources, {id: crypto.randomUUID(), title: item.title, url: item.url, text: "", selected: true}]);
+  }
+  const [kind, setKind] = useState("url");
+  const [value, setValue] = useState("");
+  const [title, setTitle] = useState("");
+  return <section className="source-editor" aria-label="방송 출처">
+    <h2>출처 <small>{sources.filter((item) => item.selected).length}개 선택</small></h2>
+    <div className="web-search">
+      <input aria-label="웹 검색어" placeholder="웹에서 소스 검색" value={query} disabled={searching || disabled} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => {if (e.key === "Enter") { e.preventDefault(); search(); }}} maxLength={200} />
+      <button type="button" disabled={searching || disabled || query.trim().length < 2} onClick={search}>{searching ? "조사 중…" : "웹 검색"}</button>
+    </div>
+    {searching && <p role="status">웹사이트를 조사 중입니다…</p>}
+    {searchError && <p role="alert">{searchError}</p>}
+    {searched && !results.length && <p>검색 결과가 없습니다. 다른 검색어로 검색해주세요.</p>}
+    {!!results.length && <div className="web-results">
+      <div className="web-results-header"><strong>검색 결과</strong><button type="button" disabled={disabled} onClick={() => {
+        const next = [...sources];
+        for (const item of results) { const index = next.findIndex((s) => s.url === item.url); if (index >= 0) next[index] = {...next[index], selected: true}; else if (next.length < 10) next.push({id: crypto.randomUUID(), title: item.title, url: item.url, text: "", selected: true}); }
+        onChange(next);
+      }}>모두 선택</button></div>
+      {results.map((item) => <article key={item.url} className="web-result">
+        <input type="checkbox" aria-label={`${item.title} 선택`} checked={sources.some((s) => s.url === item.url && s.selected)} disabled={disabled || (sources.length >= 10 && !sources.some((s) => s.url === item.url))} onChange={() => toggleResult(item)} />
+        <div><a href={item.url} target="_blank" rel="noreferrer">{item.title}</a><small>{item.domain}</small><p>{item.snippet}</p></div>
+      </article>)}
+    </div>}
+    <div className="source-entry">
+      <select aria-label="소스 종류" value={kind} onChange={(e) => setKind(e.target.value)}><option value="url">웹사이트</option><option value="text">붙여 넣은 자료</option></select>
+      <input aria-label="자료 제목" placeholder="자료 제목 (선택)" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
+      <textarea aria-label="소스 내용" placeholder={kind === "url" ? "https://..." : "자료 본문"} value={value} onChange={(e) => setValue(e.target.value)} maxLength={kind === "url" ? 2000 : 12000} />
+      <button type="button" disabled={disabled || !value.trim() || sources.length >= 10} onClick={() => {
+        onChange([...sources, {id: crypto.randomUUID(), title: title.trim(), url: kind === "url" ? value.trim() : "", text: kind === "text" ? value.trim() : "", selected: true}]);
+        setValue(""); setTitle("");
+      }}>소스 추가</button>
+    </div>
+    <ul>{sources.map((item) => <li key={item.id}>
+      <label><input type="checkbox" checked={item.selected} disabled={disabled} onChange={() => onChange(sources.map((s) => s.id === item.id ? {...s, selected: !s.selected} : s))} /><span>{item.title || item.url || item.text.slice(0, 60)}</span></label>
+      <button type="button" aria-label="소스 삭제" disabled={disabled} onClick={() => onChange(sources.filter((s) => s.id !== item.id))}>×</button>
+    </li>)}</ul>
+  </section>;
+}
+
 function FormatSelector({ broadcastFormat, onFormatChange }) {
   return (
     <section className="format-section" aria-label="방송 형식">
@@ -168,6 +229,7 @@ function BroadcastControls({
 }
 
 function PromptBox({
+  sourceEditor,
   topic,
   tone,
   broadcastFormat,
@@ -195,6 +257,7 @@ function PromptBox({
         onChange={(event) => onTopicChange(event.target.value)}
         placeholder="어떤 방송을 만들까요? 예: 오늘의 서울 핫플과 어울리는 음악"
       />
+      {sourceEditor}
       <FormatSelector broadcastFormat={broadcastFormat} onFormatChange={onFormatChange} />
       <BroadcastControls
         language={language}
@@ -383,6 +446,7 @@ function ResultPanel({ result }) {
           전체 대본
         </button>
       </div>
+      {result.sources?.length > 0 && <section className="used-sources"><h3>사용한 출처</h3><ul>{result.sources.map((item, index) => <li key={index}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a> : item.title}</li>)}</ul></section>}
 
       {viewMode === "segments" ? (
         <div className="segment-list">
@@ -553,6 +617,7 @@ function FloatingCards() {
 }
 
 function Hero({
+  sourceEditor,
   topic,
   tone,
   broadcastFormat,
@@ -595,6 +660,7 @@ function Hero({
       </section>
 
       <PromptBox
+        sourceEditor={sourceEditor}
         topic={topic}
         tone={tone}
         broadcastFormat={broadcastFormat}
@@ -642,6 +708,7 @@ function RecentBroadcasts() {
 }
 
 export default function App() {
+  const [sources, setSources] = useState([]);
   const [topic, setTopic] = useState("");
   const [tone, setTone] = useState("casual");
   const [broadcastFormat, setBroadcastFormat] = useState("deep_dive");
@@ -694,6 +761,7 @@ export default function App() {
       cuesheet: data.cuesheet ?? [],
       generationProvider: data.generationProvider ?? "offline",
       generationNotice: data.generationNotice ?? "",
+      sources: data.sources ?? [],
     };
   }
 
@@ -728,6 +796,7 @@ export default function App() {
           language,
           durationMinutes,
           source: source.trim(),
+          sources: sources.filter((item) => item.selected).map(({title, url, text}) => ({title, url, text})),
         }),
       });
       const [response] = await Promise.all([responsePromise, wait(1900)]);
@@ -753,6 +822,7 @@ export default function App() {
     <div className="page-shell">
       <Header />
       <Hero
+        sourceEditor={<SourceEditor sources={sources} onChange={setSources} disabled={loading} />}
         topic={topic}
         tone={tone}
         broadcastFormat={broadcastFormat}
