@@ -1,5 +1,7 @@
 ﻿﻿import { useEffect, useRef, useState } from "react";
 
+import { Play, Pause, Download, LoaderCircle, Clock3, RotateCcw, RotateCw } from "lucide-react";
+
 const topicChips = [
   "서울 주말 데이트 코스",
   "퇴근길 10분 뉴스",
@@ -314,23 +316,33 @@ function ResultPanel({ result }) {
   const [ttsProvider, setTtsProvider] = useState("");
   const [ttsError, setTtsError] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [viewMode, setViewMode] = useState("full");
   const audioRef = useRef(null);
+  const audioBlobRef = useRef(null);
 
   useEffect(() => {
     window.speechSynthesis?.cancel();
     audioRef.current?.pause();
     audioRef.current = null;
+    if (audioBlobRef.current) URL.revokeObjectURL(audioBlobRef.current);
+    audioBlobRef.current = null;
     setPlaying(false);
     setTtsLoading(false);
     setAudioUrl(result?.audioUrl || "");
     setTtsProvider("");
     setTtsError("");
+    setPosition(0);
+    setAudioDuration(0);
     setViewMode("segments");
 
     return () => {
       window.speechSynthesis?.cancel();
       audioRef.current?.pause();
+      if (audioBlobRef.current) URL.revokeObjectURL(audioBlobRef.current);
+      audioBlobRef.current = null;
     };
   }, [result]);
 
@@ -381,8 +393,20 @@ function ResultPanel({ result }) {
 
     try {
       const nextAudioUrl = await getAudioUrl();
-      const audio = new Audio(nextAudioUrl);
+      // A local blob supports seeking even when the server ignores Range requests.
+      if (!audioRef.current) {
+        const response = await fetch(nextAudioUrl);
+        if (!response.ok) throw new Error("음성 파일을 불러오지 못했습니다.");
+        audioBlobRef.current = URL.createObjectURL(await response.blob());
+        audioRef.current = new Audio(audioBlobRef.current);
+      }
+      const audio = audioRef.current;
       audioRef.current = audio;
+      audio.playbackRate = playbackRate;
+      audio.onloadedmetadata = () => setAudioDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+      audio.ontimeupdate = () => setPosition(audio.currentTime);
+      audio.onplay = () => setPlaying(true);
+      audio.onpause = () => setPlaying(false);
       audio.onended = () => setPlaying(false);
       audio.onerror = () => {
         setPlaying(false);
@@ -396,6 +420,35 @@ function ResultPanel({ result }) {
     } finally {
       setTtsLoading(false);
     }
+  }
+
+  function seekAudio(seconds) {
+    if (!audioRef.current || !audioDuration) return;
+    const next = Math.min(audioDuration, Math.max(0, seconds));
+    audioRef.current.currentTime = next;
+    setPosition(next);
+  }
+
+  function pointerTime(event) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (event.clientX - bounds.left) / Math.max(1, bounds.width))) * audioDuration;
+  }
+
+  async function playFromSelection(seconds) {
+    seekAudio(seconds);
+    if (!audioRef.current || !audioDuration) return;
+    setTtsError("");
+    try {
+      await audioRef.current.play();
+    } catch {
+      setPlaying(false);
+      setTtsError("선택한 위치에서 재생하지 못했습니다. 재생 버튼을 눌러주세요.");
+    }
+  }
+
+  function audioTime(seconds) {
+    const value = Math.max(0, Math.floor(seconds || 0));
+    return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
   }
 
   async function downloadMp3() {
@@ -432,36 +485,63 @@ function ResultPanel({ result }) {
         <div>
           <span className="result-kicker">생성 완료 · {result.formatLabel}</span>
           <h2>{result.title}</h2>
-          <p>{result.concept}</p>
+          <div className="result-meta"><span>{result.generationProvider === "ollama" ? "Ollama" : "대본 생성"}</span><span><Clock3 size={14} aria-hidden="true" />{result.duration}</span></div>
           {result.generationNotice && <small>{result.generationNotice}</small>}
         </div>
-        <span className="duration-badge">{result.duration}</span>
       </div>
 
-      <div className="audio-player">
+      <div className="radio-transport">
+        <div className="transport-heading"><strong>방송 오디오</strong><span>{ttsLoading || downloading ? "음성 준비 중" : ttsProvider || "Piper"}</span></div>
+        <input className="audio-seek" type="range" aria-label="재생 위치" aria-valuetext={`${audioTime(position)} / ${audioTime(audioDuration)}`} min={0} max={audioDuration || 1} step={0.1} value={position} disabled={!audioDuration || ttsLoading || downloading}
+          onChange={(event) => seekAudio(Number(event.target.value))}
+          onPointerDown={(event) => {
+            if (event.button !== 0 || !audioDuration) return;
+            event.preventDefault();
+            event.currentTarget.focus();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            seekAudio(pointerTime(event));
+          }}
+          onPointerMove={(event) => {
+            event.currentTarget.title = audioTime(pointerTime(event));
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) seekAudio(pointerTime(event));
+          }}
+          onPointerUp={(event) => {
+            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+            const seconds = pointerTime(event);
+            event.currentTarget.releasePointerCapture(event.pointerId);
+            playFromSelection(seconds);
+          }}
+          onKeyUp={(event) => {
+            if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Enter", " "].includes(event.key)) {
+              playFromSelection(Number(event.currentTarget.value));
+            }
+          }} />
+        <div className="transport-time"><span>{audioTime(position)} / {audioTime(audioDuration)}</span><span>{playing ? "재생 중" : audioDuration ? "일시 정지" : "재생 준비"}</span></div>
+        <div className="transport-controls">
+          <label className="audio-speed"><span>배속</span><select aria-label="재생 배속" value={playbackRate} onChange={(event) => {
+            const rate = Number(event.target.value); setPlaybackRate(rate);
+            if (audioRef.current) audioRef.current.playbackRate = rate;
+          }}>{[0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}</select></label>
+          <div className="transport-center">
+          <button type="button" className="audio-skip" title="10초 뒤로" aria-label="10초 뒤로" disabled={!audioDuration || ttsLoading} onClick={() => seekAudio(position - 10)}><RotateCcw size={21} /><small>10</small></button>
         <button
           className="play-button"
           type="button"
           aria-label={playing ? "음성 정지" : "대본 읽기"}
+          title={playing ? "일시 정지" : "재생"}
           onClick={handleSpeechToggle}
           disabled={ttsLoading || downloading}
         >
-          {ttsLoading ? "..." : playing ? "II" : "▶"}
+          {ttsLoading ? <LoaderCircle className="audio-loading-icon" size={20} /> : playing ? <Pause size={20} /> : <Play size={20} />}
         </button>
-        <div className="waveform" aria-hidden="true">
-          {Array.from({ length: 15 }).map((_, index) => (
-            <span key={index} />
-          ))}
+          <button type="button" className="audio-skip" title="10초 앞으로" aria-label="10초 앞으로" disabled={!audioDuration || ttsLoading} onClick={() => seekAudio(position + 10)}><RotateCw size={21} /><small>10</small></button>
+          </div>
+          <span className="transport-end"><Clock3 size={16} aria-hidden="true" />{audioTime(audioDuration)}</span>
         </div>
-        <span className="audio-time">
-          {ttsLoading ? "TTS 생성 중" : playing ? `재생 중 · ${ttsProvider || "로컬 TTS"}` : audioUrl ? ttsProvider || "로컬 TTS" : "TTS 준비"}
-        </span>
       </div>
-      <button className="mp3-download-button" type="button" onClick={downloadMp3} disabled={downloading || ttsLoading}>
-        {downloading ? "MP3 준비 중…" : "MP3 다운로드"}
-      </button>
       {ttsError && <p className="error-message audio-error">{ttsError}</p>}
 
+      <div className="result-actions">
       <div className="script-toolbar" aria-label="대본 보기 방식">
         <button
           type="button"
@@ -477,6 +557,11 @@ function ResultPanel({ result }) {
         >
           전체 대본
         </button>
+      </div>
+      <button className="mp3-download-button" type="button" onClick={downloadMp3} disabled={downloading || ttsLoading}>
+        {downloading ? <LoaderCircle className="audio-loading-icon" size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+        {downloading ? "MP3 준비 중…" : "MP3 다운로드"}
+      </button>
       </div>
       {result.sources?.length > 0 && <section className="used-sources"><h3>사용한 출처</h3><ul>{result.sources.map((item, index) => <li key={index}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a> : item.title}</li>)}</ul></section>}
 
