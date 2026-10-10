@@ -134,7 +134,7 @@ function SourceEditor({ sources, onChange, disabled }) {
         <div><a href={item.url} target="_blank" rel="noreferrer">{item.title}</a><small>{item.domain}</small><p>{item.snippet}</p></div>
       </article>)}
     </div>}
-    <div className="source-entry">
+    <details className="manual-source"><summary>자료 직접 추가</summary><div className="source-entry">
       <select aria-label="소스 종류" value={kind} onChange={(e) => setKind(e.target.value)}><option value="url">웹사이트</option><option value="text">붙여 넣은 자료</option></select>
       <input aria-label="자료 제목" placeholder="자료 제목 (선택)" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
       <textarea aria-label="소스 내용" placeholder={kind === "url" ? "https://..." : "자료 본문"} value={value} onChange={(e) => setValue(e.target.value)} maxLength={kind === "url" ? 2000 : 12000} />
@@ -142,7 +142,7 @@ function SourceEditor({ sources, onChange, disabled }) {
         onChange([...sources, {id: crypto.randomUUID(), title: title.trim(), url: kind === "url" ? value.trim() : "", text: kind === "text" ? value.trim() : "", selected: true}]);
         setValue(""); setTitle("");
       }}>소스 추가</button>
-    </div>
+    </div></details>
     <ul>{sources.map((item) => <li key={item.id}>
       <label><input type="checkbox" checked={item.selected} disabled={disabled} onChange={() => onChange(sources.map((s) => s.id === item.id ? {...s, selected: !s.selected} : s))} /><span>{item.title || item.url || item.text.slice(0, 60)}</span></label>
       <button type="button" aria-label="소스 삭제" disabled={disabled} onClick={() => onChange(sources.filter((s) => s.id !== item.id))}>×</button>
@@ -248,14 +248,14 @@ function PromptBox({
 }) {
   return (
     <form className="prompt-box" id="generate" onSubmit={onGenerate}>
-      <label className="sr-only" htmlFor="topic">
+      <label className="topic-label" htmlFor="topic">
         방송 주제
       </label>
       <textarea
         id="topic"
         value={topic}
         onChange={(event) => onTopicChange(event.target.value)}
-        placeholder="어떤 방송을 만들까요? 예: 오늘의 서울 핫플과 어울리는 음악"
+        placeholder="방송 주제 입력 (비워두면 선택한 출처를 기반으로 생성)"
       />
       {sourceEditor}
       <FormatSelector broadcastFormat={broadcastFormat} onFormatChange={onFormatChange} />
@@ -313,7 +313,8 @@ function ResultPanel({ result }) {
   const [audioUrl, setAudioUrl] = useState("");
   const [ttsProvider, setTtsProvider] = useState("");
   const [ttsError, setTtsError] = useState("");
-  const [viewMode, setViewMode] = useState("segments");
+  const [downloading, setDownloading] = useState(false);
+  const [viewMode, setViewMode] = useState("full");
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -397,6 +398,34 @@ function ResultPanel({ result }) {
     }
   }
 
+  async function downloadMp3() {
+    setDownloading(true);
+    setTtsError("");
+    try {
+      const url = await getAudioUrl();
+      const response = await fetch("/api/audio/mp3", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({audioUrl: url}),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || "MP3 다운로드에 실패했습니다.");
+      }
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `${(result.title || "방송").replace(/[\\/:*?"<>|]/g, "_")}.mp3`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (error) {
+      setTtsError(error.message || "MP3 다운로드에 실패했습니다.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <section className="result-panel show" aria-live="polite">
       <div className="result-header">
@@ -415,7 +444,7 @@ function ResultPanel({ result }) {
           type="button"
           aria-label={playing ? "음성 정지" : "대본 읽기"}
           onClick={handleSpeechToggle}
-          disabled={ttsLoading}
+          disabled={ttsLoading || downloading}
         >
           {ttsLoading ? "..." : playing ? "II" : "▶"}
         </button>
@@ -428,6 +457,9 @@ function ResultPanel({ result }) {
           {ttsLoading ? "TTS 생성 중" : playing ? `재생 중 · ${ttsProvider || "로컬 TTS"}` : audioUrl ? ttsProvider || "로컬 TTS" : "TTS 준비"}
         </span>
       </div>
+      <button className="mp3-download-button" type="button" onClick={downloadMp3} disabled={downloading || ttsLoading}>
+        {downloading ? "MP3 준비 중…" : "MP3 다운로드"}
+      </button>
       {ttsError && <p className="error-message audio-error">{ttsError}</p>}
 
       <div className="script-toolbar" aria-label="대본 보기 방식">
@@ -707,21 +739,56 @@ function RecentBroadcasts() {
   );
 }
 
+const DRAFT_STORAGE_KEY = "onair.draft.v1";
+
+function readSavedDraft() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(DRAFT_STORAGE_KEY));
+    if (!saved || saved.version !== 1) return {};
+    return {
+      sources: Array.isArray(saved.sources) ? saved.sources.filter((item) => item && typeof item.id === "string" && typeof item.text === "string" && typeof item.url === "string").slice(0, 10) : [],
+      topic: typeof saved.topic === "string" ? saved.topic : "",
+      source: typeof saved.source === "string" ? saved.source : "",
+      tone: toneOptions.some((item) => item.value === saved.tone) ? saved.tone : "casual",
+      broadcastFormat: formatOptions.some((item) => item.value === saved.broadcastFormat) ? saved.broadcastFormat : "deep_dive",
+      language: ["ko", "en"].includes(saved.language) ? saved.language : "ko",
+      durationMinutes: [5, 10, 15].includes(saved.durationMinutes) ? saved.durationMinutes : 5,
+      result: saved.result && typeof saved.result.script === "string" && Array.isArray(saved.result.segments) && Array.isArray(saved.result.music) && Array.isArray(saved.result.sources) && Array.isArray(saved.result.cuesheet) && Array.isArray(saved.result.listenerComments) ? saved.result : null,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export default function App() {
-  const [sources, setSources] = useState([]);
-  const [topic, setTopic] = useState("");
-  const [tone, setTone] = useState("casual");
-  const [broadcastFormat, setBroadcastFormat] = useState("deep_dive");
-  const [language, setLanguage] = useState("ko");
-  const [durationMinutes, setDurationMinutes] = useState(5);
-  const [source, setSource] = useState("");
+  const [savedDraft] = useState(readSavedDraft);
+  const [sources, setSources] = useState(savedDraft.sources ?? []);
+  const [topic, setTopic] = useState(savedDraft.topic ?? "");
+  const [tone, setTone] = useState(savedDraft.tone ?? "casual");
+  const [broadcastFormat, setBroadcastFormat] = useState(savedDraft.broadcastFormat ?? "deep_dive");
+  const [language, setLanguage] = useState(savedDraft.language ?? "ko");
+  const [durationMinutes, setDurationMinutes] = useState(savedDraft.durationMinutes ?? 5);
+  const [source, setSource] = useState(savedDraft.source ?? "");
   const [stepVisible, setStepVisible] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [completed, setCompleted] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(savedDraft.result ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const timersRef = useRef([]);
+  const lastResultRef = useRef(savedDraft.result ?? null);
+
+  useEffect(() => {
+    if (result) lastResultRef.current = result;
+    try {
+      window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
+        version: 1, sources, topic, tone, broadcastFormat, language,
+        durationMinutes, source, result: lastResultRef.current,
+      }));
+    } catch {
+      setError("브라우저 자동 저장에 실패했습니다. 저장 공간과 사이트 저장 권한을 확인해주세요.");
+    }
+  }, [sources, topic, tone, broadcastFormat, language, durationMinutes, source, result]);
 
   useEffect(() => {
     return () => {
@@ -772,8 +839,7 @@ export default function App() {
   async function handleGenerate(event) {
     event.preventDefault();
 
-    const nextTopic = topic.trim() || "오늘의 서울 핫플과 주말 산책 코스";
-    setTopic(nextTopic);
+    const nextTopic = topic.trim();
     setResult(null);
     setError("");
     setCompleted(false);

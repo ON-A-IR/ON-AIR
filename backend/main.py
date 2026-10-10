@@ -3,11 +3,12 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from backend.services.script_generator import ScriptGenerationError, generate_script_plan
 from backend.services.source_service import collect_available_sources, search_sources
-from backend.services.tts_service import TtsError, create_speech_file, get_tts_provider_label
+from backend.services.tts_service import TtsError, create_speech_file, get_tts_provider_label, export_mp3
 from backend.services.voice_clone_service import create_xtts_voice_test, save_reference_voice
 
 
@@ -27,7 +28,7 @@ class SearchRequest(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    topic: str = Field(min_length=1, max_length=120)
+    topic: str = Field(default="", max_length=120)
     tone: Tone = "casual"
     broadcast_format: BroadcastFormat = Field(default="deep_dive", alias="format")
     language: Language = "ko"
@@ -86,6 +87,12 @@ class TtsResponse(BaseModel):
     provider: str
 
 
+class Mp3Request(BaseModel):
+    audioUrl: str = Field(min_length=1, max_length=500)
+
+
+
+
 class VoiceTestRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=160)
     audioBase64: str = Field(min_length=1)
@@ -100,6 +107,15 @@ class VoiceTestResponse(BaseModel):
 
 
 app = FastAPI(title="On-AI-r API", version="0.5.0")
+
+
+@app.post("/api/audio/mp3")
+def download_mp3(payload: Mp3Request):
+    try:
+        path = export_mp3(payload.audioUrl)
+        return FileResponse(path, media_type="audio/mpeg", filename=path.name)
+    except TtsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.exception_handler(ScriptGenerationError)
@@ -187,9 +203,19 @@ def generate_broadcast(payload: GenerateRequest) -> GenerateResponse:
     )
     if payload.source.strip():
         source_context += f"\n추가 메모: {payload.source}"
-    music = recommend_music(payload.topic, payload.tone, payload.broadcast_format)
+    topic = payload.topic.strip()
+    if not topic:
+        titles = list(dict.fromkeys(item["title"].strip() for item in sources if item["title"].strip()))
+        topic = " · ".join(titles)[:120]
+        if not topic and sources:
+            topic = " ".join(sources[0]["text"].split())[:120]
+        if not topic:
+            topic = payload.source.strip()[:120]
+        if not topic:
+            raise HTTPException(status_code=422, detail="방송 주제를 입력하거나 사용할 출처를 선택해주세요.")
+    music = recommend_music(topic, payload.tone, payload.broadcast_format)
     script_plan = generate_script_plan(
-        topic=payload.topic,
+        topic=topic,
         tone=payload.tone,
         broadcast_format=payload.broadcast_format,
         language=payload.language,
@@ -199,8 +225,8 @@ def generate_broadcast(payload: GenerateRequest) -> GenerateResponse:
     )
 
     return GenerateResponse(
-        title=f"{payload.topic} 방송",
-        topic=payload.topic,
+        title=f"{topic} 방송",
+        topic=topic,
         concept=script_plan.concept,
         formatLabel=script_plan.format_label,
         script=script_plan.script,

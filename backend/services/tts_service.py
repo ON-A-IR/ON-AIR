@@ -17,6 +17,35 @@ class TtsError(RuntimeError):
     pass
 
 
+def export_mp3(audio_url: str) -> Path:
+    prefix = "/static/audio/"
+    if not audio_url.startswith(prefix):
+        raise TtsError("잘못된 음성 파일 경로입니다.")
+    filename = audio_url[len(prefix):]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.(wav|mp3)", filename):
+        raise TtsError("잘못된 음성 파일 이름입니다.")
+    source = (STATIC_AUDIO_DIR / filename).resolve()
+    if source.parent != STATIC_AUDIO_DIR.resolve() or not source.is_file():
+        raise TtsError("음성 파일이 없습니다. 음성을 다시 생성해주세요.")
+    if source.suffix == ".mp3":
+        return source
+    target = source.with_suffix(".mp3")
+    if target.is_file() and target.stat().st_size:
+        return target
+    temporary = target.with_name(f"{target.stem}.{uuid.uuid4().hex}.tmp.mp3")
+    try:
+        import imageio_ffmpeg
+        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-nostdin", "-y", "-i", str(source),
+            "-vn", "-codec:a", "libmp3lame", "-b:a", "128k", str(temporary)],
+            check=True, capture_output=True, timeout=180)
+        temporary.replace(target)
+        return target
+    except (ImportError, OSError, subprocess.SubprocessError) as exc:
+        raise TtsError("MP3 변환에 실패했습니다. 변환 도구 설치 상태를 확인해주세요.") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 SPEAKER_LINE_RE = re.compile(r"^\s*([^:\[\]\r\n]{1,40})\s*:\s*(.+?)\s*$")
 
 
