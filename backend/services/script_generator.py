@@ -80,10 +80,10 @@ TONE_GUIDES = {
 
 
 FORMAT_LABELS = {
-    "deep_dive": "심층 분석",
-    "summary": "요약",
-    "critique": "비평",
-    "debate": "토론",
+    "deep_dive": "이야기 라디오",
+    "summary": "한눈에 브리핑",
+    "critique": "생각의 주파수",
+    "debate": "두 가지 시선",
 }
 
 

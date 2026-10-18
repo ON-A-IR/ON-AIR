@@ -36,6 +36,13 @@ function Get-ProjectPython {
 try {
   Set-Location $Root
 
+  $python = Get-ProjectPython
+  Write-Host "[ON-AIR] Checking sample voices..."
+  & $python (Join-Path $Root "scripts\generate-samples.py")
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Sample voice refresh failed. Existing samples will remain available."
+  }
+
   if (Test-Url $BackendUrl) {
     Write-Host "[ON-AIR] Backend already running: http://127.0.0.1:8000"
   }

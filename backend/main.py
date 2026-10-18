@@ -1,6 +1,8 @@
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from backend.auth_routes import router as auth_router, check_origin
+from backend.services.auth_service import current_user
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -107,6 +109,21 @@ class VoiceTestResponse(BaseModel):
 
 
 app = FastAPI(title="On-AI-r API", version="0.5.0")
+app.include_router(auth_router)
+
+
+@app.middleware("http")
+async def require_session(request: Request, call_next):
+    if request.url.path.startswith("/api/") and request.url.path != "/api/health" and not request.url.path.startswith("/api/auth/") and request.method != "OPTIONS":
+        from fastapi.responses import JSONResponse
+        if not current_user(request.cookies.get("onair_session")):
+            return JSONResponse({"detail": "로그인이 필요합니다."}, status_code=401)
+        if request.method not in {"GET", "HEAD"}:
+            try:
+                check_origin(request)
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    return await call_next(request)
 
 
 @app.post("/api/audio/mp3")

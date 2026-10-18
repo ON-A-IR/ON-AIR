@@ -2,8 +2,10 @@ import json
 import os
 import re
 import subprocess
+import sys
 import uuid
 import wave
+from array import array
 from pathlib import Path
 from urllib import error, request
 
@@ -95,6 +97,35 @@ def _speech_turns(script: str) -> list[tuple[str, str]]:
 def script_for_tts(script: str) -> str:
     """Remove section markers and host labels before single-voice speech."""
     return " ".join(text for _, text in _speech_turns(script)).strip()
+
+
+def _piper_text(text: str) -> str:
+    pronunciations = {"AI": "에이아이", "API": "에이피아이", "CPU": "씨피유", "GPU": "지피유", "GPS": "지피에스", "LLM": "엘엘엠", "SAE": "에스에이이", "TTS": "티티에스", "LIDAR": "라이다"}
+    for abbreviation, spoken in pronunciations.items():
+        text = re.sub(rf"(?<![A-Za-z]){abbreviation}(?![A-Za-z])", spoken, text)
+    text = re.sub(r"(?<=\d)\s*%", " 퍼센트", text)
+    text = text.replace("…", ". ")
+    text = re.sub(r"\.{3,}", ". ", text)
+    text = re.sub(r"([!?])\1+", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _soften_edges(frames: bytes, channels: int, sample_width: int, frame_rate: int) -> bytes:
+    if sample_width != 2:
+        return frames
+    samples = array("h", frames)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    count = len(samples) // channels
+    fade = min(int(frame_rate * 0.005), count // 2)
+    for frame in range(fade):
+        gain = frame / max(1, fade)
+        for channel in range(channels):
+            for index in (frame * channels + channel, (count - frame - 1) * channels + channel):
+                samples[index] = int(samples[index] * gain)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples.tobytes()
 
 
 def safe_audio_name(title: str, extension: str) -> tuple[str, Path]:
@@ -234,6 +265,7 @@ def _piper_command(
         command.extend(["--speaker", speaker.strip()])
 
     command.extend(_piper_emotion_args(tone, broadcast_format))
+    command.extend(["--sentence_silence", "0.16"])
     return command
 
 
@@ -271,7 +303,7 @@ def _join_wav_files(parts: list[Path], output_path: Path) -> None:
             sample_width = first.getsampwidth()
             frame_rate = first.getframerate()
             compression = first.getcomptype()
-            frames = [first.readframes(first.getnframes())]
+            frames = [_soften_edges(first.readframes(first.getnframes()), channels, sample_width, frame_rate)]
 
         if compression != "NONE":
             raise TtsError("Piper returned a compressed WAV format that cannot be mixed.")
@@ -286,7 +318,7 @@ def _join_wav_files(parts: list[Path], output_path: Path) -> None:
                     or current.getcomptype() != compression
                 ):
                     raise TtsError("Piper speaker segments have incompatible audio formats.")
-                frames.extend([silence, current.readframes(current.getnframes())])
+                frames.extend([silence, _soften_edges(current.readframes(current.getnframes()), channels, sample_width, frame_rate)])
 
         with wave.open(str(output_path), "wb") as joined:
             joined.setnchannels(channels)
@@ -341,7 +373,20 @@ def create_piper_speech_file(
             tone,
             broadcast_format,
         )
-        _run_piper(command, script_for_tts(script), output_path)
+        # Load the model once while keeping separate dialogue turns and their pauses.
+        if not turns:
+            raise TtsError("읽을 대사가 없습니다.")
+        parts = [output_path.with_name(f"{output_path.stem}.part-{index}.wav") for index in range(len(turns))]
+        payload = "\n".join(json.dumps({"text": _piper_text(text), "output_file": str(part)}, ensure_ascii=False) for (_, text), part in zip(turns, parts))
+        try:
+            _run_piper(command + ["--json-input"], payload, parts[0])
+            _join_wav_files(parts, output_path)
+        except TtsError:
+            output_path.unlink(missing_ok=True)
+            raise
+        finally:
+            for part in parts:
+                part.unlink(missing_ok=True)
         return f"/static/audio/{filename}"
 
     speaker_a = os.environ.get("PIPER_SPEAKER_A", "0").strip()
@@ -364,7 +409,7 @@ def create_piper_speech_file(
                 tone,
                 broadcast_format,
             )
-            _run_piper(command, text, part_path)
+            _run_piper(command, _piper_text(text), part_path)
             parts.append(part_path)
 
         _join_wav_files(parts, output_path)
