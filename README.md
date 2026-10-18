@@ -12,7 +12,7 @@ ON-AIR는 주제만 입력하면 라디오 방송용 대본과 진행 자료를 
 - 방송 콘셉트, 구간별 대본, 청취자 댓글, 음악 추천, 큐시트 제공
 - Piper 또는 Windows SAPI를 이용한 로컬 음성 합성
 - 선택 기능으로 Coqui XTTS 음성 클론 테스트
-- Ollama가 설치되어 있으면 선택적으로 로컬 모델을 대본 생성에 사용
+- Ollama 로컬 모델로 요청의 주제·청취 대상·설명 방식을 해석하고 대본 생성
 
 ## 기술 스택
 
@@ -26,7 +26,7 @@ API 호출에도 로그인 세션이 필요합니다(`/api/health`, `/api/auth/*
 
 - Frontend: React 19, Vite
 - Backend: Python, FastAPI, Uvicorn
-- Script generation: ON-AIR 오프라인 생성기, 선택적 Ollama
+- Script generation: Ollama 필수, 고정 문장 분량 확장 및 모델 실패 시 템플릿 대체 없음
 - TTS: Piper, Windows SAPI, 선택적 ElevenLabs
 - Voice clone test: 선택적 Coqui XTTS
 

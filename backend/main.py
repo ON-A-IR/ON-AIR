@@ -240,6 +240,7 @@ def generate_broadcast(payload: GenerateRequest) -> GenerateResponse:
         duration_minutes=payload.duration_minutes,
         music_titles=[item.title for item in music],
     )
+    topic = script_plan.resolved_topic or topic
 
     return GenerateResponse(
         title=f"{topic} 방송",
