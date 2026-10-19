@@ -1,4 +1,4 @@
-"""Generate bundled, original radio previews once using local Piper."""
+"""Generate bundled, original radio previews with the configured TTS provider."""
 import hashlib
 import json
 import os
@@ -22,7 +22,7 @@ except (OSError, ValueError):
 
 # Ignore unrelated settings and never write credentials into the public manifest.
 settings = {key: value for key, value in os.environ.items()
-            if key.startswith("PIPER_") or key in {"TTS_PROVIDER", "ELEVENLABS_VOICE_ID"}}
+            if key.startswith(("PIPER_", "SUPERTONIC_")) or key in {"TTS_PROVIDER", "ELEVENLABS_VOICE_ID"}}
 assets = {}
 for key in ("PIPER_MODEL", "PIPER_CONFIG", "PIPER_EXE"):
     path = Path(settings.get(key, ""))
@@ -32,6 +32,12 @@ for key in ("PIPER_MODEL", "PIPER_CONFIG", "PIPER_EXE"):
         if key == "PIPER_CONFIG":
             assets[key].append(hashlib.sha256(path.read_bytes()).hexdigest())
 engine = hashlib.sha256((ROOT / "backend/services/tts_service.py").read_bytes()).hexdigest()
+if settings.get("TTS_PROVIDER") == "supertonic":
+    model_dir = Path(settings.get("SUPERTONIC_MODEL_DIR", ".tts-cache/supertonic3"))
+    if not model_dir.is_absolute():
+        model_dir = ROOT / model_dir
+    assets["supertonic"] = [(str(path.relative_to(model_dir)), path.stat().st_size, path.stat().st_mtime_ns)
+                            for path in sorted(model_dir.rglob("*")) if path.is_file() and path.suffix in {".onnx", ".json"}]
 force = "--force" in sys.argv
 formats = {"이야기 라디오": "deep_dive", "한눈에 브리핑": "summary", "생각의 주파수": "critique", "두 가지 시선": "debate"}
 for sample in json.loads((directory / "scripts.json").read_text(encoding="utf-8")):

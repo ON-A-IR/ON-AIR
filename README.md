@@ -18,6 +18,8 @@ ON-AIR는 주제만 입력하면 라디오 방송용 대본과 진행 자료를 
 
 ### 로컬 계정 사용
 
+회원가입 없이 사용하려면 첫 화면 또는 로그인 창에서 `게스트로 시작하기`를 누릅니다. 게스트 세션은 24시간 유지되며 새로고침해도 이어집니다. 로그아웃하거나 세션이 만료되면 이전 게스트 방송을 새 게스트에서 불러올 수 없습니다. 계속 보관할 방송은 일반 계정으로 로그인한 상태에서 만드세요.
+
 앱 실행 후 `회원가입`에서 영문/숫자/밑줄 3~32자의 아이디와 8자 이상 비밀번호를 등록한 뒤 로그인합니다. 기존 홈·탐색·만들기는 로그인 후 표시됩니다. 이 기능은 구글 계정 연동이 아닌 이 PC의 로컬 계정입니다.
 
 계정 DB는 기본적으로 `%LOCALAPPDATA%\ON-AIR\accounts.sqlite3`에 저장되며 Git에 포함하지 않습니다. 방송 목록은 사용자별 브라우저 저장소에 보관합니다. 기존 로그인 없는 목록은 남아 있지만 새 계정에 자동 이전하지 않습니다. 이메일 인증과 비밀번호 재설정은 미지원입니다.
@@ -112,17 +114,20 @@ Copy-Item .env.example .env
 
 ## 무료 로컬 TTS
 
-Piper 실행 파일과 한국어 모델을 준비한 뒤 `.env`에 경로를 설정하면 외부 API 없이 음성을 만들 수 있습니다.
+현재 기본 음성은 **Supertonic 3**입니다. `backend/requirements.txt` 설치 후 `python scripts/setup-supertonic.py`로 모델을 한 번 내려받으면 외부 API 없이 CPU에서 실행합니다.
 
 ```txt
-TTS_PROVIDER=piper
-PIPER_EXE=C:\ONAIR\piper\piper.exe
-PIPER_MODEL=C:\ONAIR\piper\models\ko_KR-kss-medium.onnx
+TTS_PROVIDER=supertonic
+SUPERTONIC_MODEL_DIR=.tts-cache/supertonic3
+SUPERTONIC_VOICE_A=F1
+SUPERTONIC_VOICE_B=M1
 ```
 
 자세한 내용은 [docs/local-tts.md](docs/local-tts.md)를 확인하세요.
 
-라디오 대본은 두 진행자의 이름을 포함하지만, TTS로 변환할 때 이름은 읽지 않습니다. 다중 화자 Piper 모델을 연결하면 첫 번째 진행자는 `PIPER_SPEAKER_A`, 두 번째 진행자는 `PIPER_SPEAKER_B`로 분리해 음성을 합칩니다. 현재 저장된 `ko_KR-kss-medium.onnx`는 단일 화자 모델이므로 두 목소리를 사용하려면 다중 화자 모델로 교체해야 합니다.
+진행자 이름은 읽지 않고 민서는 여성 F1, 도윤은 남성 M1로 합성해 하나의 음성으로 연결합니다. 1인 형식은 한 음성만 사용합니다. 기존 Piper 설정은 남아 있어 `TTS_PROVIDER=piper`로 되돌릴 수 있습니다. 이미 만든 방송 음성은 바뀌지 않으며 새로 생성해야 합니다. 모델의 OpenRAIL-M 이용 조건과 공개 서비스 관련 주의사항은 로컬 TTS 문서를 확인하세요.
+
+Supertonic은 대사별 속도와 쉼 조절을 기본 적용합니다. `SUPERTONIC_PROSODY=0`으로 이전 방식과 비교할 수 있습니다. 웃음·한숨 태그는 불안정할 수 있어 `SUPERTONIC_EXPRESSIONS=0`을 기본으로 유지합니다. `python scripts/preview-supertonic-prosody.py`로 비교 MP3를 생성할 수 있습니다.
 
 ## 빌드
 

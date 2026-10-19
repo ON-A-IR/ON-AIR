@@ -43,6 +43,15 @@ export default function AuthGate({ children, samples }) {
       setUser(null); window.location.hash = "home";
     } catch (failure) { window.alert(failure.message); }
   }
+  async function enterGuest() {
+    if (busy) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const data = await authRequest("guest", {});
+      setUser(data.user); setMode(""); setPassword(""); window.location.hash = "home";
+    } catch (failure) { setError(failure.message); }
+    finally { setBusy(false); }
+  }
   function open(next) { setError(""); setNotice(""); setPassword(""); setMode(next); }
   if (checking) return <div className="auth-check" role="status"><LoaderCircle className="audio-loading-icon" size={24} /> 로그인 확인 중</div>;
   if (user) return children(user, logout);
@@ -51,7 +60,7 @@ export default function AuthGate({ children, samples }) {
     <main>
       <section className="welcome-hero">
         <img className="welcome-background" src="/samples/weekend-walk.png" alt="" />
-        <div className="welcome-hero-copy"><span className="welcome-onair"><Radio size={16} /> ON-AIR</span><h1>당신의 이야기를<br />라디오로.</h1><p>궁금했던 주제부터 오늘의 작은 발견까지.<br />나만의 방송으로 만들고 들어보세요.</p><button type="button" className="welcome-start" onClick={() => open("register")}>내 방송 시작하기 <ArrowRight size={18} /></button></div>
+        <div className="welcome-hero-copy"><span className="welcome-onair"><Radio size={16} /> ON-AIR</span><h1>당신의 이야기를<br />라디오로.</h1><p>궁금했던 주제부터 오늘의 작은 발견까지.<br />나만의 방송으로 만들고 들어보세요.</p><div className="welcome-entry-actions"><button type="button" className="welcome-start" disabled={busy} onClick={() => open("register")}>내 방송 시작하기 <ArrowRight size={18} /></button><button type="button" className="guest-entry" disabled={busy} onClick={enterGuest}>{busy ? <LoaderCircle className="audio-loading-icon" size={16} /> : null}게스트로 시작하기 <ArrowRight size={16} /></button></div></div>
       </section>
       <section className="welcome-samples"><div className="welcome-section-heading"><h2>먼저, 들어보세요.</h2><button type="button" onClick={() => open("login")}>스튜디오 들어가기 <ArrowRight size={16} /></button></div>{samples}</section>
     </main>
@@ -61,6 +70,7 @@ export default function AuthGate({ children, samples }) {
       <div className="auth-dialog-heading"><h2>{mode === "register" ? "ON-AIR 회원가입" : "다시 만나 반가워요"}</h2><button type="button" title="닫기" aria-label="닫기" disabled={busy} onClick={() => setMode("")}><X size={20} /></button></div>
       <form onSubmit={submit}><label>아이디<input autoFocus name="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required minLength={3} maxLength={32} pattern="[A-Za-z0-9_]{3,32}" placeholder="영문·숫자·밑줄 3~32자" disabled={busy} /></label><label>비밀번호<input name="password" type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} placeholder="8자 이상" disabled={busy} /></label>{error && <p role="alert" className="error-message">{error}</p>}{notice && <p role="status">{notice}</p>}<button className="auth-submit" type="submit" disabled={busy}>{busy ? <LoaderCircle className="audio-loading-icon" size={18} /> : mode === "register" ? "가입하기" : "로그인"}</button></form>
       <button type="button" className="auth-switch" disabled={busy} onClick={() => open(mode === "register" ? "login" : "register")}>{mode === "register" ? "이미 계정이 있어요 · 로그인" : "처음 오셨나요? · 회원가입"}</button>
+      <div className="auth-guest"><button type="button" className="guest-entry" disabled={busy} onClick={enterGuest}>회원가입 없이 게스트로 시작하기 <ArrowRight size={16} /></button><small>게스트 세션은 24시간 유지됩니다. 로그아웃하면 이전 게스트 방송은 다시 불러올 수 없습니다.</small></div>
     </dialog>
   </div>;
 }

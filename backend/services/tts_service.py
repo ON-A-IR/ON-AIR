@@ -5,6 +5,9 @@ import subprocess
 import sys
 import uuid
 import wave
+from functools import lru_cache
+from threading import Lock
+from tempfile import TemporaryDirectory
 from array import array
 from pathlib import Path
 from urllib import error, request
@@ -66,7 +69,7 @@ def load_dotenv() -> None:
 
 
 def _speech_turns(script: str) -> list[tuple[str, str]]:
-    """Extract dialogue turns while keeping speaker names for Piper routing."""
+    """Extract dialogue turns while keeping speaker names for voice routing."""
     turns: list[tuple[str, str]] = []
     current_index: int | None = None
 
@@ -293,9 +296,28 @@ def _run_piper(command: list[str], text: str, output_path: Path) -> None:
         raise TtsError("Piper did not create a valid audio file.")
 
 
-def _join_wav_files(parts: list[Path], output_path: Path) -> None:
+def _trim_edge_silence(frames: bytes, channels: int, sample_width: int, frame_rate: int) -> bytes:
+    if sample_width != 2:
+        return frames
+    samples = array("h", frames)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    # Keep a quiet margin so breaths and unvoiced consonants are not cut off.
+    first = next((i for i, value in enumerate(samples) if abs(value) > 64), None)
+    if first is None:
+        return frames
+    last = len(samples) - 1 - next(i for i, value in enumerate(reversed(samples)) if abs(value) > 64)
+    margin = int(frame_rate * .08)
+    start = max(0, first // channels - margin) * channels * sample_width
+    end = min(len(samples) // channels, last // channels + margin + 1) * channels * sample_width
+    return frames[start:end]
+
+
+def _join_wav_files(parts: list[Path], output_path: Path, pauses: list[float] | None = None) -> None:
     if not parts:
-        raise TtsError("Piper did not create any dialogue audio.")
+        raise TtsError("TTS did not create any dialogue audio.")
+    if pauses is not None and (len(pauses) != len(parts) - 1 or any(not 0 <= gap <= 1 for gap in pauses)):
+        raise TtsError("대사 사이 간격 설정이 올바르지 않습니다.")
 
     try:
         with wave.open(str(parts[0]), "rb") as first:
@@ -303,13 +325,17 @@ def _join_wav_files(parts: list[Path], output_path: Path) -> None:
             sample_width = first.getsampwidth()
             frame_rate = first.getframerate()
             compression = first.getcomptype()
-            frames = [_soften_edges(first.readframes(first.getnframes()), channels, sample_width, frame_rate)]
+            first_frames = first.readframes(first.getnframes())
+            if pauses is not None:
+                first_frames = _trim_edge_silence(first_frames, channels, sample_width, frame_rate)
+            frames = [_soften_edges(first_frames, channels, sample_width, frame_rate)]
 
         if compression != "NONE":
-            raise TtsError("Piper returned a compressed WAV format that cannot be mixed.")
+            raise TtsError("TTS returned a compressed WAV format that cannot be mixed.")
 
-        silence = b"\x00" * int(frame_rate * 0.12) * channels * sample_width
-        for part in parts[1:]:
+        for index, part in enumerate(parts[1:]):
+            gap = pauses[index] if pauses is not None else .12
+            silence = b"\x00" * int(frame_rate * gap) * channels * sample_width
             with wave.open(str(part), "rb") as current:
                 if (
                     current.getnchannels() != channels
@@ -317,8 +343,11 @@ def _join_wav_files(parts: list[Path], output_path: Path) -> None:
                     or current.getframerate() != frame_rate
                     or current.getcomptype() != compression
                 ):
-                    raise TtsError("Piper speaker segments have incompatible audio formats.")
-                frames.extend([silence, _soften_edges(current.readframes(current.getnframes()), channels, sample_width, frame_rate)])
+                    raise TtsError("TTS speaker segments have incompatible audio formats.")
+                current_frames = current.readframes(current.getnframes())
+                if pauses is not None:
+                    current_frames = _trim_edge_silence(current_frames, channels, sample_width, frame_rate)
+                frames.extend([silence, _soften_edges(current_frames, channels, sample_width, frame_rate)])
 
         with wave.open(str(output_path), "wb") as joined:
             joined.setnchannels(channels)
@@ -326,7 +355,7 @@ def _join_wav_files(parts: list[Path], output_path: Path) -> None:
             joined.setframerate(frame_rate)
             joined.writeframes(b"".join(frames))
     except (OSError, wave.Error) as exc:
-        raise TtsError(f"Piper audio segments could not be joined: {exc}") from exc
+        raise TtsError(f"TTS audio segments could not be joined: {exc}") from exc
 
 
 def create_piper_speech_file(
@@ -423,6 +452,133 @@ def create_piper_speech_file(
     return f"/static/audio/{filename}"
 
 
+_supertonic_lock = Lock()
+
+_EXPRESSION_TAG = re.compile(r"<(laugh|breath|sigh|surprise|scream|throatclear|sad|angry|cough|yawn)>", re.I)
+
+
+def _supertonic_spoken_text(text: str, expressions: bool = False) -> str:
+    retained = False
+
+    def expression(match):
+        nonlocal retained
+        tag = match.group(1).lower()
+        if expressions and not retained and tag in {"laugh", "breath", "sigh"}:
+            retained = True
+            return f"<{tag}>"
+        return " "
+
+    return re.sub(r"\s+", " ", _EXPRESSION_TAG.sub(expression, text)).strip()
+
+
+def _supertonic_delivery(text: str, tone: str, broadcast_format: str) -> dict:
+    clean = _supertonic_spoken_text(text)
+    base = {"casual": 1.0, "formal": .98, "cheerful": 1.05, "calm": .94}.get(tone, 1.0)
+    kind, adjustment, chunk_pause = "explanation", -.02, .20
+    if re.search(r"[?？][\"'”’]*$|(?:까요|나요|어때요|인가요)[.!]*$", clean):
+        kind, adjustment, chunk_pause = "question", -.01, .18
+    elif len(clean) <= 70 and re.match(r"(?:그랬군요|그럴 수 있|이해돼요|속상했|힘들었)", clean):
+        kind, adjustment, chunk_pause = "empathy", -.04, .23
+    elif len(clean) <= 45 and re.match(r"(?:아[,! .]|오[,! .]|와[,! .]|하하|맞아요|그러네요|그렇군요|좋아요|정말요|맞네요|그렇죠|Oh\b|Wow\b|Right\b)", clean, re.I):
+        kind, adjustment, chunk_pause = "reaction", .02, .14
+    elif re.match(r"(?:정리하면|마지막으로|오늘 기억|오늘은 여기까지|다음 시간)", clean):
+        kind, adjustment, chunk_pause = "closing", -.03, .24
+    if broadcast_format == "summary" and kind == "explanation":
+        adjustment += .01
+    return {"kind": kind, "speed": round(max(.88, min(1.10, base + adjustment)), 3),
+            "silence_duration": chunk_pause}
+
+
+def _supertonic_turn_pauses(turns: list[tuple[str, str]], deliveries: list[dict]) -> list[float]:
+    pauses = []
+    for index in range(1, len(turns)):
+        previous, current = deliveries[index - 1]["kind"], deliveries[index]["kind"]
+        if turns[index - 1][0] == turns[index][0]:
+            gap = .28
+        elif current == "reaction":
+            gap = .10
+        elif previous == "question":
+            gap = .20
+        elif current == "closing" or previous == "empathy":
+            gap = .30
+        else:
+            gap = .22
+        pauses.append(gap)
+    return pauses
+
+
+@lru_cache(maxsize=1)
+def _supertonic_engine(model_dir: str):
+    from supertonic import TTS
+    return TTS(model="supertonic-3", model_dir=model_dir, auto_download=False,
+               intra_op_num_threads=2, inter_op_num_threads=1)
+
+
+def create_supertonic_speech_file(
+    script: str,
+    title: str = "broadcast",
+    tone: str = "casual",
+    broadcast_format: str = "deep_dive",
+) -> str:
+    turns = _speech_turns(script)
+    if not turns:
+        raise TtsError("읽을 대사가 없습니다.")
+    names = list(dict.fromkeys(name for name, _ in turns if name))
+    if len(names) > 2:
+        raise TtsError("현재 라디오 TTS는 최대 두 명의 진행자만 지원합니다.")
+    voice_a = os.environ.get("SUPERTONIC_VOICE_A", "F1").strip()
+    voice_b = os.environ.get("SUPERTONIC_VOICE_B", "M1").strip()
+    if not re.fullmatch(r"F[1-5]", voice_a) or not re.fullmatch(r"M[1-5]", voice_b):
+        raise TtsError("Supertonic 여성 음성은 F1~F5, 남성 음성은 M1~M5로 설정해주세요.")
+    # Keep named hosts stable even if the male host speaks first.
+    mapping = {"민서": voice_a, "도윤": voice_b}
+    remaining = [voice for voice in (voice_a, voice_b) if voice not in
+                 {mapping[name] for name in names if name in mapping}]
+    for name in names:
+        if name not in mapping:
+            mapping[name] = remaining.pop(0)
+    model_dir = Path(os.environ.get("SUPERTONIC_MODEL_DIR", str(ROOT_DIR / ".tts-cache/supertonic3")))
+    if not model_dir.is_absolute():
+        model_dir = ROOT_DIR / model_dir
+    filename, output = safe_audio_name(title, "wav")
+    prosody = os.environ.get("SUPERTONIC_PROSODY", "1") == "1"
+    expressions = os.environ.get("SUPERTONIC_EXPRESSIONS", "0") == "1"
+    turns = [(name, _supertonic_spoken_text(text, expressions)) for name, text in turns]
+    turns = [(name, text) for name, text in turns if text]
+    if not turns:
+        raise TtsError("읽을 대사가 없습니다.")
+    deliveries = [_supertonic_delivery(text, tone, broadcast_format) for _, text in turns]
+    base_speed = {"casual": 1.0, "formal": .98, "cheerful": 1.05, "calm": .94}.get(tone, 1.0)
+    pauses = _supertonic_turn_pauses(turns, deliveries) if prosody else None
+    try:
+        # Serialize inference so concurrent requests cannot multiply CPU/model usage.
+        with _supertonic_lock:
+            engine = _supertonic_engine(str(model_dir.resolve()))
+            styles = {voice: engine.get_voice_style(voice) for voice in {mapping.get(name, voice_a) for name, _ in turns}}
+            with TemporaryDirectory(prefix="supertonic-", dir=STATIC_AUDIO_DIR) as directory:
+                parts = []
+                for index, (name, text) in enumerate(turns):
+                    lang = "ko" if re.search(r"[가-힣]", text) else "en"
+                    spoken = _piper_text(text) if lang == "ko" else text
+                    audio, _ = engine.synthesize(spoken, voice_style=styles[mapping.get(name, voice_a)],
+                                                 lang=lang, total_steps=8,
+                                                 speed=deliveries[index]["speed"] if prosody else base_speed,
+                                                 silence_duration=deliveries[index]["silence_duration"] if prosody else .18)
+                    part = Path(directory) / f"{index}.wav"
+                    engine.save_audio(audio, str(part))
+                    with wave.open(str(part), "rb") as wav:
+                        if wav.getnframes() == 0:
+                            raise TtsError("Supertonic이 빈 음성을 생성했습니다.")
+                    parts.append(part)
+                _join_wav_files(parts, output, pauses=pauses)
+    except Exception as exc:
+        output.unlink(missing_ok=True)
+        if isinstance(exc, TtsError):
+            raise
+        raise TtsError("Supertonic 음성 생성에 실패했습니다. 패키지와 로컬 모델 설치 상태를 확인해주세요.") from exc
+    return f"/static/audio/{filename}"
+
+
 def create_elevenlabs_speech_file(script: str, title: str = "broadcast") -> str:
     api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
@@ -475,6 +631,8 @@ def create_speech_file(
     load_dotenv()
 
     provider = os.environ.get("TTS_PROVIDER", "auto").strip().lower()
+    if provider == "supertonic":
+        return create_supertonic_speech_file(script, title, tone, broadcast_format)
     if provider == "piper":
         return create_piper_speech_file(script, title, tone, broadcast_format)
     if provider == "elevenlabs":
@@ -498,6 +656,8 @@ def get_tts_provider_label() -> str:
     load_dotenv()
 
     provider = os.environ.get("TTS_PROVIDER", "auto").strip().lower()
+    if provider == "supertonic":
+        return "Supertonic 3"
     if provider == "piper":
         return "Piper"
     if provider == "elevenlabs":

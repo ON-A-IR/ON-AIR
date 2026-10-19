@@ -75,3 +75,15 @@ def logout(request: Request, response: Response):
     auth.logout(request.cookies.get(COOKIE))
     response.delete_cookie(COOKIE)
     return {"ok": True}
+
+
+@router.post("/guest")
+def guest_login(request: Request, response: Response):
+    limit(request)
+    response.headers["Cache-Control"] = "no-store"
+    existing = auth.current_user(request.cookies.get(COOKIE))
+    if existing:
+        return {"user": existing}
+    token, user = auth.create_guest_session()
+    response.set_cookie(COOKIE, token, max_age=86400, httponly=True, samesite="strict", secure=os.environ.get("ONAIR_SECURE_COOKIE") == "1")
+    return {"user": user}

@@ -1,6 +1,6 @@
 ﻿﻿import { useEffect, useRef, useState } from "react";
 
-import { Play, Pause, Download, LoaderCircle, Clock3, RotateCcw, RotateCw, Radio, FolderOpen, Trash2, Plus, Home, Search, Mic2 } from "lucide-react";
+import { Play, Pause, Download, LoaderCircle, Clock3, RotateCcw, RotateCw, Radio, FolderOpen, Trash2, Plus, Home, Search, Mic2, Headphones, AudioLines, Lightbulb, MessagesSquare, Check, Languages, Link2, PanelLeftClose, PanelLeftOpen, LogOut } from "lucide-react";
 import radioSamples from "../public/samples/scripts.json";
 import sampleVoiceVersions from "../public/samples/voice-manifest.json";
 import AuthGate from "./AuthGate";
@@ -21,21 +21,25 @@ const toneOptions = [
 const formatOptions = [
   {
     value: "deep_dive",
+    Icon: Headphones,
     title: "이야기 라디오",
     description: "두 진행자가 익숙한 일상에서 이야기를 꺼내고, 궁금한 점을 하나씩 풀어갑니다.",
   },
   {
     value: "summary",
+    Icon: AudioLines,
     title: "한눈에 브리핑",
     description: "한 진행자가 꼭 알아둘 내용을 골라, 듣기 편한 순서로 짧고 명확하게 전합니다.",
   },
   {
     value: "critique",
+    Icon: Lightbulb,
     title: "생각의 주파수",
     description: "한 진행자가 좋은 점과 아쉬운 점을 짚고, 놓치기 쉬운 질문을 함께 생각해봅니다.",
   },
   {
     value: "debate",
+    Icon: MessagesSquare,
     title: "두 가지 시선",
     description: "두 진행자가 같은 주제를 다른 관점에서 바라보며, 의견이 갈리는 이유를 나눕니다.",
   },
@@ -75,7 +79,7 @@ function wait(milliseconds) {
   });
 }
 
-function Header({ user, onLogout }) {
+function Header({ user, onLogout, collapsed, onToggle }) {
   const [active, setActive] = useState(() => window.location.hash || "#home");
   useEffect(() => {
     const update = () => setActive(window.location.hash || "#home");
@@ -85,13 +89,14 @@ function Header({ user, onLogout }) {
   const menus = [{ href: "#home", label: "홈", Icon: Home }, { href: "#explore", label: "탐색", Icon: Search }, { href: "#generate", label: "만들기", Icon: Mic2 }];
   return (
     <header className="app-sidebar">
-      <a className="brand" href="#home" aria-label="On-AI-r 홈">
+      <div className="sidebar-heading"><a className="brand" href="#home" aria-label="On-AI-r 홈">
         On-AI-r
       </a>
-      <nav className="sidebar-links" aria-label="주요 메뉴">
-        {menus.map(({ href, label, Icon }) => <a key={href} href={href} className={active === href ? "selected" : ""} aria-current={active === href ? "location" : undefined} onClick={() => setActive(href)}><Icon size={20} aria-hidden="true" /><span>{label}</span></a>)}
+      <button type="button" className="sidebar-toggle" onClick={onToggle} aria-label={collapsed ? "메뉴 펼치기" : "메뉴 접기"} aria-expanded={!collapsed} aria-controls="sidebar-navigation" title={collapsed ? "메뉴 펼치기" : "메뉴 접기"}>{collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}</button></div>
+      <nav id="sidebar-navigation" className="sidebar-links" aria-label="주요 메뉴">
+        {menus.map(({ href, label, Icon }) => <a key={href} href={href} aria-label={label} data-tooltip={label} className={active === href ? "selected" : ""} aria-current={active === href ? "location" : undefined} onClick={() => setActive(href)}><Icon size={20} aria-hidden="true" /><span>{label}</span></a>)}
       </nav>
-      <div className="sidebar-account"><span>{user.username}</span><button type="button" onClick={onLogout}>로그아웃</button></div>
+      <div className="sidebar-account"><span>{user.username}</span><button type="button" onClick={onLogout} aria-label="로그아웃" title="로그아웃"><LogOut size={16} aria-hidden="true" /><span>로그아웃</span></button></div>
     </header>
   );
 }
@@ -167,9 +172,11 @@ function FormatSelector({ broadcastFormat, onFormatChange }) {
             key={option.value}
             type="button"
             className={`format-card ${broadcastFormat === option.value ? "selected" : ""}`}
+            aria-pressed={broadcastFormat === option.value}
             onClick={() => onFormatChange(option.value)}
           >
-            <span>{option.title}</span>
+            <div className="format-topline"><option.Icon size={19} strokeWidth={1.7} aria-hidden="true" /><Check className="format-check" size={15} aria-hidden="true" /></div>
+            <span className="format-name">{option.title}</span>
             <p>{option.description}</p>
           </button>
         ))}
@@ -186,6 +193,7 @@ function ToneSelector({ tone, onToneChange }) {
           key={option.value}
           type="button"
           className={tone === option.value ? "selected" : ""}
+          aria-pressed={tone === option.value}
           onClick={() => onToneChange(option.value)}
         >
           {option.label}
@@ -206,14 +214,14 @@ function BroadcastControls({
   return (
     <div className="control-row">
       <label>
-        <span>언어 선택</span>
+        <span><Languages size={14} aria-hidden="true" /> 언어 선택</span>
         <select value={language} onChange={(event) => onLanguageChange(event.target.value)}>
           <option value="ko">한국어</option>
           <option value="en">English</option>
         </select>
       </label>
       <label>
-        <span>길이</span>
+        <span><Clock3 size={14} aria-hidden="true" /> 길이</span>
         <select
           value={durationMinutes}
           onChange={(event) => onDurationChange(Number(event.target.value))}
@@ -224,7 +232,7 @@ function BroadcastControls({
         </select>
       </label>
       <label>
-        <span>소스</span>
+        <span><Link2 size={14} aria-hidden="true" /> 참고 메모</span>
         <input
           value={source}
           onChange={(event) => onSourceChange(event.target.value)}
@@ -254,9 +262,9 @@ function PromptBox({
   onGenerate,
 }) {
   return (
-    <form className="prompt-box" id="generate" onSubmit={onGenerate}>
+    <form className="prompt-box creation-form" id="generate" onSubmit={onGenerate}>
       <label className="topic-label" htmlFor="topic">
-        방송 주제
+        <Mic2 size={16} aria-hidden="true" /> 방송 주제
       </label>
       <textarea
         id="topic"
@@ -284,6 +292,7 @@ function PromptBox({
           ))}
         </div>
         <button className="make-button" type="submit" disabled={loading}>
+          {loading ? <LoaderCircle className="audio-loading-icon" size={17} aria-hidden="true" /> : <Radio size={17} aria-hidden="true" />}
           {loading ? "생성 중" : "방송 만들기"}
         </button>
       </div>
@@ -387,7 +396,7 @@ function ResultPanel({ result }) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || "Piper 음성 생성에 실패했습니다.");
+      throw new Error(errorData.detail || "음성 생성에 실패했습니다.");
     }
 
     const data = await response.json();
@@ -421,13 +430,13 @@ function ResultPanel({ result }) {
       audio.onended = () => setPlaying(false);
       audio.onerror = () => {
         setPlaying(false);
-        setTtsError("Piper WAV 파일을 재생하지 못했습니다.");
+        setTtsError("음성 파일을 재생하지 못했습니다.");
       };
       await audio.play();
       setPlaying(true);
     } catch (error) {
       setPlaying(false);
-      setTtsError(error.message || "Piper 음성을 재생하지 못했습니다.");
+      setTtsError(error.message || "음성을 재생하지 못했습니다.");
     } finally {
       setTtsLoading(false);
     }
@@ -503,7 +512,7 @@ function ResultPanel({ result }) {
       </div>
 
       <div className="radio-transport">
-        <div className="transport-heading"><strong>방송 오디오</strong><span>{ttsLoading || downloading ? "음성 준비 중" : ttsProvider || "Piper"}</span></div>
+        <div className="transport-heading"><strong>방송 오디오</strong><span>{ttsLoading || downloading ? "음성 준비 중" : ttsProvider || "AI 음성"}</span></div>
         <input className="audio-seek" type="range" aria-label="재생 위치" aria-valuetext={`${audioTime(position)} / ${audioTime(audioDuration)}`} min={0} max={audioDuration || 1} step={0.1} value={position} disabled={!audioDuration || ttsLoading || downloading}
           onChange={(event) => seekAudio(Number(event.target.value))}
           onPointerDown={(event) => {
@@ -621,8 +630,9 @@ function ResultPanel({ result }) {
 }
 
 
-function FloatingCards() {
+function FloatingCards({ showAll = false }) {
   const [samples] = useState(() => {
+    if (showAll) return radioSamples;
     let previous = [];
     try { previous = JSON.parse(sessionStorage.getItem("onair.sample-pair") || "[]"); } catch {}
     if (!Array.isArray(previous)) previous = [];
@@ -635,11 +645,13 @@ function FloatingCards() {
   const [error, setError] = useState("");
   const player = useRef(null);
   useEffect(() => {
-    try { sessionStorage.setItem("onair.sample-pair", JSON.stringify(samples.map((item) => item.id))); } catch {}
+    if (!showAll) {
+      try { sessionStorage.setItem("onair.sample-pair", JSON.stringify(samples.map((item) => item.id))); } catch {}
+    }
     const stop = () => { player.current?.pause(); setActive(""); };
     window.addEventListener("onair-main-play", stop);
     return () => { player.current?.pause(); window.removeEventListener("onair-main-play", stop); };
-  }, [samples]);
+  }, [samples, showAll]);
   async function preview(sample) {
     if (active === sample.id) { player.current?.pause(); setActive(""); return; }
     player.current?.pause();
@@ -652,8 +664,8 @@ function FloatingCards() {
     try { await audio.play(); } catch { if (player.current === audio) { setActive(""); setError("샘플을 재생하지 못했습니다."); } }
   }
   return <>
-    <div className="sample-previews" id="explore" aria-label="샘플 방송 탐색">{samples.map((sample, index) => <article key={sample.id} className={`floating-card sample-card floating-card-${index ? "right" : "left"} ${active === sample.id ? "is-playing" : ""}`}>
-      <img className="sample-cover" src={`/samples/${sample.id}.png`} alt="" loading="eager" />
+    <div className="sample-previews" aria-label="샘플 방송 탐색">{samples.map((sample, index) => <article key={sample.id} className={`floating-card sample-card floating-card-${index ? "right" : "left"} ${active === sample.id ? "is-playing" : ""}`}>
+      <img className="sample-cover" src={`/samples/${sample.id}.png`} alt="" loading={showAll ? "lazy" : "eager"} />
       <button type="button" className="sample-play" aria-pressed={active === sample.id} aria-label={`${sample.title} ${active === sample.id ? "일시 정지" : "미리 듣기"}`} title={active === sample.id ? "일시 정지" : "미리 듣기"} onClick={() => preview(sample)}>{active === sample.id ? <Pause size={22} /> : <Play size={22} />}</button>
       <strong>{sample.title}</strong><span>{sample.format} · {active === sample.id ? "재생 중" : "미리 듣기"}</span>
     </article>)}</div>
@@ -827,6 +839,9 @@ function readSavedDraft() {
 }
 
 function Workspace({ user, onLogout }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("onair.sidebar-collapsed") === "true"; } catch { return false; }
+  });
   const libraryKey = `${LIBRARY_STORAGE_KEY}.user-${user.id}`;
   const [view, setView] = useState(() => ["#generate", "#explore"].includes(window.location.hash) ? window.location.hash : "#home");
   useEffect(() => {
@@ -981,15 +996,19 @@ function Workspace({ user, onLogout }) {
   }
 
   return (
-    <div className="page-shell sidebar-layout separated-pages">
-      <Header user={user} onLogout={onLogout} />
+    <div className={`page-shell sidebar-layout separated-pages${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      <Header user={user} onLogout={onLogout} collapsed={sidebarCollapsed} onToggle={() => {
+        const next = !sidebarCollapsed;
+        setSidebarCollapsed(next);
+        try { localStorage.setItem("onair.sidebar-collapsed", String(next)); } catch {}
+      }} />
       <main className="home-search-page" hidden={view !== "#home"}>
         <div className="home-search-title"><Radio size={22} aria-hidden="true" /><h1>어떤 이야기가 궁금하세요?</h1></div>
         <div className="home-example"><ExampleHeadline paused={view !== "#home" || loading} /></div>
         <SourceEditor searchOnly sources={sources} onChange={setSources} disabled={loading} />
         {!!sources.filter((item) => item.selected).length && <a className="home-create-link" href="#generate">선택한 출처 {sources.filter((item) => item.selected).length}개로 방송 만들기 <Mic2 size={16} /></a>}
       </main>
-      <main className="explore-page" hidden={view !== "#explore"}><h1>탐색</h1><h2>미리 듣는 ON-AIR</h2><FloatingCards /></main>
+      <main className="explore-page" hidden={view !== "#explore"}><h1>탐색</h1><h2>미리 듣는 ON-AIR</h2><FloatingCards showAll /></main>
       <div hidden={view !== "#generate"}>
       <h1 className="create-page-heading">방송 만들기</h1>
       <Hero

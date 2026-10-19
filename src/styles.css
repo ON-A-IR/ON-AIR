@@ -1296,3 +1296,85 @@ textarea::placeholder {
   .app-sidebar .brand { font-size: 16px; }
   .sidebar-links a { padding: 6px; gap: 4px; }
 }
+.welcome-entry-actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 20px; }
+.welcome-entry-actions .welcome-start { margin-top: 0; }
+.guest-entry { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 14px; border: 1px solid #ffffff35; border-radius: 6px; background: rgba(18,18,18,.35); color: #f3eae5; font: inherit; font-size: 14px; cursor: pointer; }
+.guest-entry:hover:not(:disabled) { background: rgba(255,255,255,.1); border-color: #b08f7d; }
+.guest-entry:disabled { opacity: .55; cursor: wait; }
+.auth-guest { margin-top: 20px; padding-top: 20px; border-top: 1px solid #49413e; }
+.auth-guest .guest-entry { width: 100%; }
+.auth-guest small { display: block; margin-top: 10px; color: #b4aaa4; line-height: 1.6; font-size: 12px; }
+
+.sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 32px; }
+.sidebar-heading .brand { margin: 0; font-size: 24px; }
+.sidebar-toggle { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; color: #aaa7ab; background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.sidebar-toggle:hover { color: #fff; background: #ffffff0c; border-color: #ffffff18; }
+.sidebar-toggle:focus-visible { outline: 2px solid #ef875c; outline-offset: 3px; }
+.sidebar-account button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; }
+.sidebar-links a svg { flex-shrink: 0; }
+@media (min-width: 761px) {
+  .app-sidebar { transition: width 180ms ease, padding 180ms ease; }
+  .page-shell.sidebar-layout { transition: margin-left 180ms ease, width 180ms ease; }
+  .page-shell.sidebar-layout.sidebar-collapsed { margin-left: 100px; width: calc(100% - 128px); }
+  .sidebar-collapsed .app-sidebar { width: 76px; padding: 30px 10px; }
+  .sidebar-collapsed .sidebar-heading { justify-content: center; }
+  .sidebar-collapsed .brand, .sidebar-collapsed .sidebar-links a > span, .sidebar-collapsed .sidebar-account span { display: none; }
+  .sidebar-collapsed .sidebar-links a { position: relative; justify-content: center; padding: 12px 0; }
+  .sidebar-collapsed .sidebar-links a::after { content: attr(data-tooltip); position: absolute; left: calc(100% + 16px); top: 50%; transform: translateY(-50%); padding: 7px 10px; border: 1px solid #ffffff26; border-radius: 6px; background: #242224; color: #f7f4f2; font-size: 12px; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; }
+  .sidebar-collapsed .sidebar-links a:hover::after, .sidebar-collapsed .sidebar-links a:focus-visible::after { opacity: 1; visibility: visible; }
+  .sidebar-collapsed .sidebar-account { left: 10px; right: 10px; justify-content: center; }
+  .sidebar-collapsed .sidebar-account button { width: 40px; height: 40px; }
+}
+@media (max-width: 760px) {
+  .sidebar-heading { margin-bottom: 0; }
+  .sidebar-toggle { display: none; }
+  .sidebar-account button span { display: inline; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar, .page-shell.sidebar-layout { transition: none; }
+}
+
+.creation-form.prompt-box { background: #191819; border-color: #ffffff16; box-shadow: 0 12px 40px #0002; padding: 24px; }
+.creation-form .topic-label { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: #ebe7e4; }
+.creation-form .topic-label svg { color: #c69580; }
+.creation-form #topic { background: #202022; border-color: #ffffff12; padding: 18px 20px; color: #f2efed; transition: border-color .2s, background .2s; }
+.creation-form :is(input, textarea)::placeholder { color: #8f8b8c; font-weight: 400; }
+.creation-form :is(input, textarea, select):hover:not(:disabled) { border-color: #ffffff30; }
+.creation-form :is(input, textarea, select):focus-visible { outline: 2px solid #e7a28680; outline-offset: 2px; }
+.creation-form .source-editor { border-color: #ffffff12; }
+.creation-form .source-editor h2 { color: #e7e3e1; font-size: 14px; font-weight: 600; }
+.creation-form .source-editor h2 span { font-weight: 400; color: #999396; font-size: 12px; }
+.creation-form .web-search input,
+.creation-form .source-entry :is(input, select, textarea) { background: #222123; border-color: #ffffff14; border-radius: 8px; }
+.creation-form .source-editor button { background: #302c2b; border-color: #ffffff12; color: #e0d8d4; transition: background .2s; }
+.creation-form .source-editor button:hover:not(:disabled) { background: #403632; }
+.creation-form .source-editor button:disabled { opacity: .45; }
+.creation-form .manual-source { border-color: #ffffff12; color: #b3abad; font-size: 13px; }
+.creation-form .manual-source summary { cursor: pointer; padding: 5px 0; }
+.creation-form input[type="checkbox"] { accent-color: #df936f; }
+.creation-form .web-result:has(input:checked) { background: #ffffff06; }
+.creation-form .format-card { border-radius: 8px; border-color: #ffffff10; background: #222123; padding: 16px; min-width: 0; transition: background .18s, border-color .18s; }
+.creation-form .format-card:hover { background: #292729; border-color: #ffffff29; }
+.creation-form .format-card.selected { background: #2b2421; border-color: #c486656e; }
+.creation-form .format-topline { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: #aaa0a0; }
+.creation-form .format-card.selected .format-topline { color: #edab88; }
+.creation-form .format-check { opacity: 0; }
+.creation-form .format-card.selected .format-check { opacity: 1; }
+.creation-form .format-card .format-name { display: block; font-size: 14px; font-weight: 600; color: #f1ece9; overflow-wrap: anywhere; }
+.creation-form .format-card.selected span::after { content: none; }
+.creation-form .format-card p { margin-top: 10px; font-size: 12px; font-weight: 400; line-height: 1.7; color: #aaa3a4; overflow-wrap: anywhere; }
+.creation-form .control-row label > span { display: flex; align-items: center; gap: 6px; color: #aaa3a4; font-size: 12px; font-weight: 500; }
+.creation-form .control-row :is(input, select) { height: 42px; border-radius: 8px; border-color: #ffffff14; background: #222123; font-size: 13px; font-weight: 500; }
+.creation-form .tone-selector { gap: 6px; }
+.creation-form .tone-selector button { min-height: 34px; background: #222123; border-color: #ffffff10; border-radius: 6px; color: #999294; font-size: 12px; font-weight: 500; }
+.creation-form .tone-selector button.selected { background: #37302d; border-color: #bd8e735c; color: #f0d6c7; }
+.creation-form .chips button { background: transparent; border-color: #ffffff18; color: #9f9798; font-weight: 400; transition: color .18s, border-color .18s; }
+.creation-form .chips button:hover { color: #e8d4c9; border-color: #b88b6f80; }
+.creation-form .make-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; height: auto; border-radius: 8px; background: #eaa17b; color: #241a15; font-size: 13px; font-weight: 600; transition: background .18s; }
+.creation-form .make-button:hover:not(:disabled) { background: #f4b591; }
+.creation-form .make-button:disabled { background: #383233; color: #8e8585; opacity: .8; }
+@media (max-width: 760px) {
+  .creation-form.prompt-box { padding: 18px; }
+  .creation-form .format-card { padding: 14px; }
+  .creation-form .format-topline { margin-bottom: 10px; }
+}
